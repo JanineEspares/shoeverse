@@ -43,10 +43,8 @@ if (!$result) {
             <p class="text-muted small flex-grow-1"><?php echo htmlspecialchars($row['description']); ?></p>
 
             <div class="mt-auto">
-              <a href="item/index.php?id=<?php echo $row['product_id']; ?>#reviews" class="btn btn-outline-primary btn-sm w-100 mb-2">
-                View Details
-              </a>
-              <a href="cart/cart_update.php?action=add&id=<?php echo $row['product_id']; ?>" class="btn btn-primary btn-sm w-100">
+              <!-- Primary action: go to product detail. No fragment so page won't auto-scroll to reviews. -->
+              <a href="item/index.php?id=<?php echo $row['product_id']; ?>" class="btn btn-primary btn-sm w-100 mb-2">
                 Add to Cart
               </a>
             </div>

@@ -207,6 +207,35 @@ if (isset($_GET['id']) && !empty($_GET['id'])) {
         })();
         </script>
         <?php
+        // Fetch and display reviews only (no review submission form)
+        $reviews = [];
+        $rstmt = mysqli_prepare($conn, "SELECT r.review_id, r.user_id, r.rating, r.review_text, r.created_at, u.fname, u.lname FROM reviews r JOIN users u ON r.user_id = u.user_id WHERE r.product_id = ? ORDER BY r.created_at DESC");
+        mysqli_stmt_bind_param($rstmt, 'i', $product['product_id']);
+        mysqli_stmt_execute($rstmt);
+        $rres = mysqli_stmt_get_result($rstmt);
+        if ($rres) { while ($row = mysqli_fetch_assoc($rres)) { $reviews[] = $row; } }
+        mysqli_stmt_close($rstmt);
+
+        ?>
+        <hr>
+        <div id="reviews">
+          <h4>Customer Reviews</h4>
+          <?php if (!empty($reviews)): ?>
+            <div class="mb-3">
+              <?php foreach ($reviews as $rev): ?>
+                <div class="border rounded p-2 mb-2">
+                  <strong><?php echo htmlspecialchars($rev['fname'] . ' ' . $rev['lname']); ?></strong>
+                  <span class="text-muted"> — <?php echo htmlspecialchars($rev['created_at']); ?></span>
+                  <div>Rating: <?php echo intval($rev['rating']); ?> / 5</div>
+                  <div><?php echo nl2br(htmlspecialchars($rev['review_text'])); ?></div>
+                </div>
+              <?php endforeach; ?>
+            </div>
+          <?php else: ?>
+            <p class="text-muted">No reviews yet.</p>
+          <?php endif; ?>
+        </div>
+        <?php
     } else {
         echo "<div class='alert alert-warning text-center'>Product not found.</div>";
     }
@@ -311,10 +340,8 @@ $result = mysqli_query($conn, $query);
             </p>
 
             <div class="mt-auto">
-              <a href="index.php?id=<?php echo $row['product_id']; ?>" class="btn btn-outline-primary btn-sm w-100 mb-2">
-                View Details
-              </a>
-              <a href="../cart/cart_update.php?action=add&id=<?php echo $row['product_id']; ?>" class="btn btn-primary btn-sm w-100 mb-2">
+              <!-- Primary action: go to product detail. No fragment so page won't auto-scroll to reviews. -->
+              <a href="index.php?id=<?php echo $row['product_id']; ?>" class="btn btn-primary btn-sm w-100 mb-2">
                 Add to Cart
               </a>
 
