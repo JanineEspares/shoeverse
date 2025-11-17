@@ -47,7 +47,6 @@ CREATE TABLE IF NOT EXISTS `db_shoeverse`.`orders` (
   `shipping_fee` DECIMAL(7,2) NULL,
   `status` ENUM('Pending', 'Shipped', 'Delivered', 'Cancelled') NOT NULL,
   `payment_method` ENUM('Online','COD') NOT NULL DEFAULT 'COD',
-  `payment_info` VARCHAR(255) NULL,
   `shipping_address` VARCHAR(255) NOT NULL,
   PRIMARY KEY (`order_id`),
   INDEX `fk_orders_users_idx` (`user_id` ASC) ,

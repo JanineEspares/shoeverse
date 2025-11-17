@@ -42,6 +42,12 @@ $total = 0;
 
 <h2 class="text-center mb-4">🛒 Your Shopping Cart</h2>
 
+<?php if (isset($_GET['error']) && $_GET['error'] === 'out_of_stock'): ?>
+  <div class="container">
+    <div class="alert alert-warning text-center">Sorry — one or more items you tried to add are out of stock or the requested quantity exceeds current availability.</div>
+  </div>
+<?php endif; ?>
+
 <?php if (mysqli_num_rows($result) > 0): ?>
   <div class="table-responsive">
     <table class="table table-bordered align-middle">

@@ -34,6 +34,31 @@ if (isset($_GET['id']) && !empty($_GET['id'])) {
             $images[] = 'https://via.placeholder.com/450x450?text=ShoeVerse';
         }
 
+        // Handle Add-to-Cart POST without JS: compute variant_id server-side and redirect to cart handler
+        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_cart'])) {
+          $post_product_id = intval($_POST['product_id'] ?? 0);
+          $post_color = isset($_POST['color']) ? trim($_POST['color']) : '';
+          $post_size = isset($_POST['size']) ? trim($_POST['size']) : '';
+          $post_qty = isset($_POST['quantity']) ? intval($_POST['quantity']) : 1;
+
+          $resolved_variant_id = 0;
+          if ($post_product_id > 0 && $post_color !== '' && $post_size !== '') {
+            $vs = mysqli_prepare($conn, "SELECT variant_id FROM product_variants WHERE product_id = ? AND color_name = ? AND size_value = ? LIMIT 1");
+            if ($vs) {
+              mysqli_stmt_bind_param($vs, 'iss', $post_product_id, $post_color, $post_size);
+              mysqli_stmt_execute($vs);
+              mysqli_stmt_bind_result($vs, $found_vid);
+              if (mysqli_stmt_fetch($vs)) { $resolved_variant_id = intval($found_vid); }
+              mysqli_stmt_close($vs);
+            }
+          }
+
+          // Redirect to cart/cart_update.php with resolved variant_id (0 if not found)
+          $redir = "../cart/cart_update.php?action=add&id=" . urlencode($post_product_id) . "&quantity=" . urlencode($post_qty);
+          if ($resolved_variant_id > 0) $redir .= "&variant_id=" . urlencode($resolved_variant_id);
+          header('Location: ' . $redir);
+          exit();
+        }
         // Fetch variants
         $varRes = mysqli_query($conn, "SELECT variant_id, color_name, color_image, size_value, stock FROM product_variants WHERE product_id = " . $product_id . " ORDER BY color_name, size_value");
         $colors = [];
@@ -59,15 +84,31 @@ if (isset($_GET['id']) && !empty($_GET['id'])) {
         <div class="row">
           <div class="col-md-6">
             <div class="text-center mb-3">
-              <img id="mainImage" src="<?php echo (strpos($images[0],'http')===0? $images[0] : 'images/'.htmlspecialchars($images[0])); ?>" 
+              <?php
+                // If an image is requested via GET param, and it exists in the images list, use it as main image
+                $selectedImg = null;
+                if (isset($_GET['img'])) {
+                    $req = $_GET['img'];
+                    foreach ($images as $im) { if ($im === $req) { $selectedImg = $im; break; } }
+                }
+                $mainToShow = $selectedImg ?? $images[0];
+                $mainSrc = (strpos($mainToShow,'http')===0? $mainToShow : 'images/'.htmlspecialchars($mainToShow));
+              ?>
+              <img id="mainImage" src="<?php echo $mainSrc; ?>" 
                    alt="<?php echo htmlspecialchars($product['product_name']); ?>" 
                    class="img-fluid rounded shadow-sm" 
                    style="max-height: 450px; object-fit: cover;">
             </div>
             <?php if (count($images) > 1): ?>
               <div class="d-flex gap-2 flex-wrap">
-                <?php foreach ($images as $im): ?>
-                  <img class="thumb border rounded" src="<?php echo (strpos($im,'http')===0? $im : 'images/'.htmlspecialchars($im)); ?>" style="width:70px;height:70px;object-fit:cover;cursor:pointer;" onclick="document.getElementById('mainImage').src=this.src">
+                <?php foreach ($images as $im):
+                    $thumbSrc = (strpos($im,'http')===0? $im : 'images/'.htmlspecialchars($im));
+                    $imgUrl = 'index.php?id=' . urlencode($product_id) . '&img=' . urlencode($im);
+                    if (isset($_GET['color'])) $imgUrl .= '&color=' . urlencode($_GET['color']);
+                ?>
+                  <a href="<?php echo $imgUrl; ?>" class="d-block">
+                    <img class="thumb border rounded" src="<?php echo $thumbSrc; ?>" style="width:70px;height:70px;object-fit:cover;cursor:pointer;">
+                  </a>
                 <?php endforeach; ?>
               </div>
             <?php endif; ?>
@@ -92,35 +133,56 @@ if (isset($_GET['id']) && !empty($_GET['id'])) {
                 <div class="mb-3">
                   <label class="form-label">Color</label>
                   <div id="colorRow" class="d-flex flex-wrap gap-2">
-                    <?php foreach ($colors as $c): $ci = isset($colorImage[$c]) ? $colorImage[$c] : null; ?>
-                      <button type="button" class="btn btn-outline-secondary btn-sm color-choice" data-color="<?php echo htmlspecialchars($c); ?>">
+                    <?php foreach ($colors as $c): $ci = isset($colorImage[$c]) ? $colorImage[$c] : null; 
+                          $colorLink = 'index.php?id=' . urlencode($product_id) . '&color=' . urlencode($c);
+                    ?>
+                      <a href="<?php echo $colorLink; ?>" class="btn btn-outline-secondary btn-sm <?php echo (isset($_GET['color']) && $_GET['color']===$c)? 'active':''; ?>">
                         <?php if ($ci): ?>
                           <img src="images/<?php echo htmlspecialchars($ci); ?>" style="width:28px;height:28px;object-fit:cover;border-radius:4px;vertical-align:middle;" alt="">
                         <?php endif; ?>
                         <span><?php echo htmlspecialchars($c); ?></span>
-                      </button>
+                      </a>
                     <?php endforeach; ?>
                   </div>
                 </div>
 
                 <div class="mb-3">
                   <label class="form-label">Size</label>
-                  <select id="sizeSelect" class="form-select" disabled>
-                    <option value="">Select size</option>
-                  </select>
+                  <?php $selectedColor = isset($_GET['color']) ? $_GET['color'] : null; ?>
+                  <?php if ($selectedColor && isset($sizesByColor[$selectedColor])): ?>
+                    <!-- Render sizes as links so clicking a size reloads the page with color+size and shows stock immediately (no extra button) -->
+                    <div class="d-flex flex-wrap gap-2">
+                      <?php foreach ($sizesByColor[$selectedColor] as $sz):
+                        $sizeLink = 'index.php?id=' . urlencode($product_id) . '&color=' . urlencode($selectedColor) . '&size=' . urlencode($sz);
+                        if (isset($_GET['img'])) $sizeLink .= '&img=' . urlencode($_GET['img']);
+                      ?>
+                        <a href="<?php echo $sizeLink; ?>" class="btn btn-outline-secondary btn-sm <?php echo (isset($_GET['size']) && $_GET['size']===$sz)? 'active':''; ?>"><?php echo htmlspecialchars($sz); ?></a>
+                      <?php endforeach; ?>
+                    </div>
+                    <?php $stockKey = $selectedColor . '|' . (isset($_GET['size']) ? $_GET['size'] : '');
+                          $displayStock = isset($stockMap[$stockKey]) ? $stockMap[$stockKey] : '—'; ?>
+                    <?php if (isset($_GET['size']) && $_GET['size'] !== ''): ?>
+                      <div class="mb-2 text-muted">Available stock: <span><?php echo $displayStock; ?></span></div>
+                    <?php else: ?>
+                      <div class="text-muted small">Click a size to view available stock.</div>
+                    <?php endif; ?>
+                  <?php else: ?>
+                    <div class="text-muted small">Select a color to see available sizes.</div>
+                  <?php endif; ?>
                 </div>
-
-                <div class="mb-2 text-muted">Available stock: <span id="stockInfo">—</span></div>
               <?php endif; ?>
 
-              <form action="../cart/cart_update.php" method="GET" class="mt-3">
-                <input type="hidden" name="action" value="add">
-                <input type="hidden" name="id" value="<?php echo $product['product_id']; ?>">
-                <input type="hidden" id="variantIdField" name="variant_id" value="">
-                <div class="input-group mb-3" style="max-width: 280px;">
+              <form method="POST" class="mt-3">
+                <input type="hidden" name="add_to_cart" value="1">
+                <input type="hidden" name="product_id" value="<?php echo $product['product_id']; ?>">
+                <input type="hidden" name="color" value="<?php echo isset($_GET['color'])? htmlspecialchars($_GET['color']): ''; ?>">
+                <div class="input-group mb-3" style="max-width: 320px;">
                   <input id="qtyInput" type="number" name="quantity" class="form-control" value="1" min="1" placeholder="Qty">
                   <button type="submit" class="btn btn-primary">Add to Cart</button>
                 </div>
+                <?php if (isset($_GET['color']) && isset($sizesByColor[$_GET['color']])): ?>
+                  <input type="hidden" name="size" value="<?php echo isset($_GET['size'])? htmlspecialchars($_GET['size']): ''; ?>">
+                <?php endif; ?>
               </form>
 
             <?php else: /* Admin read-only view: show colors, sizes and stock as information (no buttons, selects, forms) */ ?>
@@ -162,50 +224,7 @@ if (isset($_GET['id']) && !empty($_GET['id'])) {
           </div>
         </div>
 
-        <script>
-        (function(){
-          const sizesByColor = <?php echo json_encode($sizesByColor ?? []); ?>;
-          const stockMap = <?php echo json_encode($stockMap ?? []); ?>;
-          const variantMap = <?php echo json_encode($variantMap ?? []); ?>;
-          const sizeSel = document.getElementById('sizeSelect');
-          const stockEl = document.getElementById('stockInfo');
-          const qty = document.getElementById('qtyInput');
-          const varField = document.getElementById('variantIdField');
-          let chosenColor = null;
-
-          function setSizes(color){
-            sizeSel.innerHTML = '<option value="">Select size</option>';
-            if(!color || !sizesByColor[color]){ sizeSel.disabled = true; stockEl.textContent = '—'; qty.removeAttribute('max'); varField.value=''; return; }
-            sizeSel.disabled = false;
-            sizesByColor[color].forEach(sz=>{
-              const opt = document.createElement('option');
-              opt.value = sz; opt.textContent = sz; sizeSel.appendChild(opt);
-            });
-          }
-
-          document.querySelectorAll('.color-choice').forEach(btn=>{
-            btn.addEventListener('click', function(){
-              document.querySelectorAll('.color-choice').forEach(b=>b.classList.remove('active'));
-              this.classList.add('active');
-              chosenColor = this.getAttribute('data-color');
-              setSizes(chosenColor);
-              stockEl.textContent = '—';
-              qty.value = 1; qty.removeAttribute('max');
-              varField.value = '';
-            });
-          });
-
-          sizeSel && sizeSel.addEventListener('change', function(){
-            const key = (chosenColor||'') + '|' + (this.value||'');
-            const st = stockMap[key] || 0;
-            const vid = variantMap[key] || '';
-            stockEl.textContent = st;
-            varField.value = vid;
-            if(st>0){ qty.max = st; if(parseInt(qty.value||'1',10)>st) qty.value = st; }
-            else { qty.removeAttribute('max'); }
-          });
-        })();
-        </script>
+        
         <?php
         // Fetch and display reviews only (no review submission form)
         $reviews = [];
@@ -349,10 +368,9 @@ $result = mysqli_query($conn, $query);
                 <a href="edit.php?id=<?php echo $row['product_id']; ?>" class="btn btn-warning btn-sm w-100 mb-2">
                   Edit
                 </a>
-                <a href="delete.php?id=<?php echo $row['product_id']; ?>" class="btn btn-danger btn-sm w-100"
-                   onclick="return confirm('Are you sure you want to delete this product?');">
+                 <a href="delete.php?id=<?php echo $row['product_id']; ?>" class="btn btn-danger btn-sm w-100">
                    Delete
-                </a>
+                 </a>
               <?php endif; ?>
             </div>
           </div>

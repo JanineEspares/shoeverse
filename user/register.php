@@ -72,70 +72,7 @@
           </div>
         </form>
 
-        <script>
-        // Client-side validation (no HTML5 validation)
-        (function(){
-            function show(el, msg){ el.style.display='block'; el.textContent = msg; }
-            function hide(el){ el.style.display='none'; el.textContent=''; }
-
-            var form = document.getElementById('registerForm');
-            var fname = document.getElementById('fname');
-            var lname = document.getElementById('lname');
-            var email = document.getElementById('email');
-            var pwd = document.getElementById('password');
-            var pwdc = document.getElementById('password_confirm');
-            var contact = document.getElementById('contact_number');
-            var address = document.getElementById('address_line');
-            var photo = document.getElementById('photo');
-
-            var fnameErr = document.getElementById('fnameError');
-            var lnameErr = document.getElementById('lnameError');
-            var emailErr = document.getElementById('emailError');
-            var pwdErr = document.getElementById('passwordError');
-            var pwdcErr = document.getElementById('passwordConfirmError');
-            var contactErr = document.getElementById('contactError');
-            var addressErr = document.getElementById('addressError');
-            var photoErr = document.getElementById('photoError');
-
-            function validateEmail(v){ return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v); }
-            function validatePhone(v){ return /^\+?[0-9\-\s]{7,20}$/.test(v); }
-
-            form.addEventListener('submit', function(e){
-                var valid = true;
-                // First/Last name
-                if (fname.value.trim() === ''){ show(fnameErr, 'First name is required'); valid = false; } else { hide(fnameErr); }
-                if (lname.value.trim() === ''){ show(lnameErr, 'Last name is required'); valid = false; } else { hide(lnameErr); }
-
-                // Email
-                var em = email.value.trim();
-                if (em === ''){ show(emailErr, 'Email is required'); valid = false; }
-                else if (!validateEmail(em)){ show(emailErr, 'Enter a valid email address'); valid = false; }
-                else { hide(emailErr); }
-
-                // Password rules
-                if (pwd.value.length < 8){ show(pwdErr, 'Password must be at least 8 characters'); valid = false; } else { hide(pwdErr); }
-                if (pwdc.value !== pwd.value){ show(pwdcErr, 'Passwords do not match'); valid = false; } else { hide(pwdcErr); }
-
-                // Contact and address
-                if (contact.value.trim() === ''){ show(contactErr, 'Contact number is required'); valid = false; }
-                else if (!validatePhone(contact.value.trim())){ show(contactErr, 'Enter a valid contact number'); valid = false; }
-                else { hide(contactErr); }
-
-                if (address.value.trim() === ''){ show(addressErr, 'Address is required'); valid = false; } else { hide(addressErr); }
-
-                // Photo (optional) - check type/size if provided
-                if (photo.files && photo.files.length > 0) {
-                    var f = photo.files[0];
-                    var allowed = ['image/jpeg','image/png','image/gif'];
-                    if (allowed.indexOf(f.type) === -1) { show(photoErr, 'Only JPG/PNG/GIF files allowed'); valid = false; }
-                    else if (f.size > 2 * 1024 * 1024) { show(photoErr, 'Photo must be smaller than 2MB'); valid = false; }
-                    else { hide(photoErr); }
-                } else { hide(photoErr); }
-
-                if (!valid) e.preventDefault();
-            });
-        })();
-        </script>
+        <!-- Server-side PHP validation is used instead of JavaScript validation per course rules -->
 
         <p class="text-center mt-3">Already have an account? <a href="login.php">Login here</a></p>
       </div>

@@ -18,7 +18,13 @@ include '../includes/config.php';
     <div class="col-md-6">
       <div class="card shadow-lg p-4">
         <h3 class="text-center mb-4">Welcome Back!</h3>
-
+        <?php
+        // show any auth message (e.g., redirected from admin area)
+        if (isset($_SESSION['auth_message'])) {
+            echo '<div class="alert alert-warning">' . htmlspecialchars($_SESSION['auth_message']) . '</div>';
+            unset($_SESSION['auth_message']);
+        }
+        ?>
         <form id="loginForm" action="" method="POST" novalidate>
           <div class="mb-3">
             <label class="form-label">Email</label>
@@ -40,30 +46,7 @@ include '../includes/config.php';
             </div>
           </form>
 
-        <script>
-        // Client-side validation (no HTML5 validation)
-        (function(){
-            function show(el, msg){ el.style.display='block'; el.textContent = msg; }
-            function hide(el){ el.style.display='none'; el.textContent=''; }
-
-            var form = document.getElementById('loginForm');
-            var emailIn = document.getElementById('email');
-            var pwdIn = document.getElementById('password');
-            var emailErr = document.getElementById('emailError');
-            var pwdErr = document.getElementById('passwordError');
-
-            function validateEmail(v){ return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v); }
-
-            form.addEventListener('submit', function(e){
-                var valid = true;
-                var em = emailIn.value.trim();
-                var pw = pwdIn.value;
-                if (em === ''){ show(emailErr, 'Email is required'); valid = false; } else if (!validateEmail(em)){ show(emailErr, 'Enter a valid email address'); valid = false; } else { hide(emailErr); }
-                if (pw === ''){ show(pwdErr, 'Password is required'); valid = false; } else { hide(pwdErr); }
-                if (!valid) e.preventDefault();
-            });
-        })();
-        </script>
+        <!-- Using server-side PHP validation for login (no JavaScript validation as requested) -->
 
           <p class="text-center mt-3">
             Don’t have an account? <a href="register.php">Register here</a>

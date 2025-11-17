@@ -6,7 +6,9 @@ include __DIR__ . '/config.php';
 
 // Admin access check
 if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'Admin') {
-    echo "<div class='text-center mt-5'><h3>Access denied. Admins only.</h3></div>";
+    // redirect to login with a message
+    $_SESSION['auth_message'] = 'Please login as an administrator to access the admin panel.';
+    header('Location: /db_shoeverse/user/login.php');
     exit();
 }
 ?>

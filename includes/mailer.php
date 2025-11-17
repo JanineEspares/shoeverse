@@ -1,7 +1,8 @@
 <?php
 // Centralized mailer helper. Uses PHPMailer if available, falls back to mail().
 // Usage: sendOrderEmail($conn, $user_id, $order_id, $order_date, $subtotal, $grand_total, $items_html, $shipping_address, $payment_method, $payment_info)
-function sendOrderEmail($conn, $user_id, $order_id, $order_date, $subtotal, $grand_total, $items_html, $shipping_address, $payment_method, $payment_info = null) {
+// New optional parameter $status_intro: a short message to prepend depending on order status
+function sendOrderEmail($conn, $user_id, $order_id, $order_date, $subtotal, $grand_total, $items_html, $shipping_address, $payment_method, $payment_info = null, $status_intro = null) {
     // fetch user email and name
     $stmt = mysqli_prepare($conn, "SELECT fname, email FROM users WHERE user_id = ? LIMIT 1");
     if (!$stmt) return false;
@@ -18,6 +19,9 @@ function sendOrderEmail($conn, $user_id, $order_id, $order_date, $subtotal, $gra
 
     // build HTML body
     $body = "<p>Hi " . htmlspecialchars($cust_name) . ",</p>";
+    if (!empty($status_intro)) {
+        $body .= "<p>" . htmlspecialchars($status_intro) . "</p>";
+    }
     $body .= "<p>Thanks for your order. Here are the details for your transaction:</p>";
     $body .= "<p><strong>Order ID:</strong> " . intval($order_id) . "<br>";
     $body .= "<strong>Order Date:</strong> " . htmlspecialchars($order_date) . "<br>";

@@ -57,3 +57,7 @@ session_start(); // Always start the session before any HTML
 
 <!-- Start main container -->
 <div class="container mt-4">
+  <?php
+  // render flash alerts site-wide (helpers may not be loaded yet in every page)
+  include __DIR__ . '/alert.php';
+  ?>

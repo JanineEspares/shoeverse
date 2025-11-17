@@ -81,7 +81,7 @@ $categoriesResult = mysqli_query($conn, "SELECT * FROM category");
         </div>
 
         <button type="submit" class="btn btn-primary" name="submit">Add Product</button>
-        <a href="index.php" class="btn btn-secondary">Cancel</a>
+        <a href="../admin/products.php" class="btn btn-secondary">Cancel</a>
     </form>
 </div>
 

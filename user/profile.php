@@ -40,6 +40,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_review'])) {
     }
 }
 
+// Handle customer cancel order
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel_order'])) {
+    $order_id = intval($_POST['order_id']);
+    $user_id = $_SESSION['user_id'];
+
+    // verify order belongs to user and is Pending
+    $chk = mysqli_prepare($conn, "SELECT status FROM orders WHERE order_id = ? AND user_id = ? LIMIT 1");
+    mysqli_stmt_bind_param($chk, 'ii', $order_id, $user_id);
+    mysqli_stmt_execute($chk);
+    $res = mysqli_stmt_get_result($chk);
+    $row = $res ? mysqli_fetch_assoc($res) : null;
+    mysqli_stmt_close($chk);
+
+    if (!$row) {
+        $_SESSION['message'] = 'Order not found.';
+    } elseif ($row['status'] !== 'Pending') {
+        $_SESSION['message'] = 'Only pending orders can be cancelled.';
+    } else {
+        // begin transaction
+        mysqli_begin_transaction($conn);
+        try {
+            // set order status to Cancelled
+            $u = mysqli_prepare($conn, "UPDATE orders SET status = 'Cancelled' WHERE order_id = ? AND user_id = ?");
+            mysqli_stmt_bind_param($u, 'ii', $order_id, $user_id);
+            mysqli_stmt_execute($u);
+            mysqli_stmt_close($u);
+
+            // restore stock for each orderline
+            $ol = mysqli_prepare($conn, "SELECT product_id, variant_id, quantity FROM orderline WHERE order_id = ?");
+            mysqli_stmt_bind_param($ol, 'i', $order_id);
+            mysqli_stmt_execute($ol);
+            $olres = mysqli_stmt_get_result($ol);
+            mysqli_stmt_close($ol);
+
+            while ($line = mysqli_fetch_assoc($olres)) {
+                $pid = intval($line['product_id']);
+                $vid = $line['variant_id'] !== null ? intval($line['variant_id']) : null;
+                $qty = intval($line['quantity']);
+                if ($vid) {
+                    $upv = mysqli_prepare($conn, "UPDATE product_variants SET stock = stock + ? WHERE variant_id = ?");
+                    mysqli_stmt_bind_param($upv, 'ii', $qty, $vid);
+                    mysqli_stmt_execute($upv);
+                    mysqli_stmt_close($upv);
+                } else {
+                    $upp = mysqli_prepare($conn, "UPDATE products SET stock = stock + ? WHERE product_id = ?");
+                    mysqli_stmt_bind_param($upp, 'ii', $qty, $pid);
+                    mysqli_stmt_execute($upp);
+                    mysqli_stmt_close($upp);
+                }
+            }
+
+            mysqli_commit($conn);
+            $_SESSION['success'] = 'Order cancelled and stock restored.';
+        } catch (Exception $e) {
+            mysqli_rollback($conn);
+            $_SESSION['message'] = 'Failed to cancel order.';
+        }
+    }
+
+    header('Location: /db_shoeverse/user/profile.php'); exit();
+}
+
 // Get user data
 $user_id = $_SESSION['user_id'];
 $query = "SELECT * FROM users WHERE user_id = $user_id";
@@ -63,22 +125,33 @@ if (isset($_POST['update'])) {
 
     // Handle profile photo upload (optional)
     $uploadedPhoto = '';
-    if (isset($_FILES['photo']) && isset($_FILES['photo']['tmp_name']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
-        $uploadDir = __DIR__ . '/images';
-        if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
-        $tmpName = $_FILES['photo']['tmp_name'];
-        $origName = basename($_FILES['photo']['name']);
-        $ext = pathinfo($origName, PATHINFO_EXTENSION);
-        $allowed = ['jpg','jpeg','png','gif'];
-        if (in_array(strtolower($ext), $allowed)) {
-            $newName = time() . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
-            $dest = $uploadDir . '/' . $newName;
-            if (move_uploaded_file($tmpName, $dest)) {
-                $uploadedPhoto = $newName;
-                // Optionally remove old photo file if exists
-                if (!empty($user['photo'])) {
-                    $oldPath = __DIR__ . '/images/' . $user['photo'];
-                    if (file_exists($oldPath)) @unlink($oldPath);
+    if (isset($_FILES['photo'])) {
+        if (isset($_FILES['photo']['error']) && $_FILES['photo']['error'] !== UPLOAD_ERR_NO_FILE) {
+            if ($_FILES['photo']['error'] !== UPLOAD_ERR_OK) {
+                // Provide helpful error message
+                $_SESSION['message'] = 'Photo upload failed (code ' . intval($_FILES['photo']['error']) . ').';
+            } else {
+                $uploadDir = __DIR__ . '/images';
+                if (!is_dir($uploadDir)) mkdir($uploadDir, 0755, true);
+                $tmpName = $_FILES['photo']['tmp_name'];
+                $origName = basename($_FILES['photo']['name']);
+                $ext = pathinfo($origName, PATHINFO_EXTENSION);
+                $allowed = ['jpg','jpeg','png','gif','webp'];
+                if (in_array(strtolower($ext), $allowed)) {
+                    $newName = time() . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+                    $dest = $uploadDir . '/' . $newName;
+                    if (move_uploaded_file($tmpName, $dest)) {
+                        $uploadedPhoto = $newName;
+                        // Optionally remove old photo file if exists
+                        if (!empty($user['photo'])) {
+                            $oldPath = __DIR__ . '/images/' . $user['photo'];
+                            if (file_exists($oldPath)) @unlink($oldPath);
+                        }
+                    } else {
+                        $_SESSION['message'] = 'Failed to move uploaded file.';
+                    }
+                } else {
+                    $_SESSION['message'] = 'Invalid file type. Allowed: jpg,jpeg,png,gif,webp.';
                 }
             }
         }
@@ -106,15 +179,21 @@ if (isset($_POST['update'])) {
 
     if (mysqli_query($conn, $updateQuery)) {
         $_SESSION['fname'] = $fname; // update session name
-        echo "<div class='alert alert-success'>Profile updated successfully.</div>";
-        // Update $user array so form shows latest values
-        $user['fname'] = $fname;
-        $user['lname'] = $lname;
-        $user['email'] = $email;
-        $user['contact_number'] = $contact_number;
-        $user['address_line'] = $address_line;
+        $_SESSION['success'] = 'Profile updated successfully.';
+        // Refresh user row from DB so the latest photo (if saved) is reflected
+        $uq = mysqli_query($conn, "SELECT * FROM users WHERE user_id = " . intval($user_id) . " LIMIT 1");
+        if ($uq && mysqli_num_rows($uq) === 1) {
+            $user = mysqli_fetch_assoc($uq);
+        } else {
+            // Fallback to updating in-memory values
+            $user['fname'] = $fname;
+            $user['lname'] = $lname;
+            $user['email'] = $email;
+            $user['contact_number'] = $contact_number;
+            $user['address_line'] = $address_line;
+        }
     } else {
-        echo "<div class='alert alert-danger'>Failed to update profile.</div>";
+        $_SESSION['message'] = 'Failed to update profile: ' . mysqli_error($conn);
     }
 }
 ?>
@@ -126,6 +205,10 @@ if (isset($_POST['update'])) {
     <nav class="nav nav-borders mb-3">
         <a class="nav-link active ms-0" href="#">Profile</a>
     </nav>
+    <?php
+        // Determine which orders section to show (server-driven, no JS)
+        $activeSection = isset($_GET['section']) ? $_GET['section'] : 'to_ship';
+    ?>
     <div class="row">
         <div class="col-xl-4 d-flex">
             <!-- Profile picture card-->
@@ -139,10 +222,9 @@ if (isset($_POST['update'])) {
                     <div class="small font-italic text-muted mb-4">JPG or PNG no larger than 5 MB</div>
                     <!-- Profile picture upload button-->
                     <div class="d-flex justify-content-center">
-                        <button class="btn btn-primary me-2" type="button" onclick="document.getElementById('profilePhotoInput').click();">Upload new image</button>
-                        <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('profilePreview').src='<?php echo $photoSrc; ?>'; document.getElementById('profilePhotoInput').value='';">Reset</button>
+                        <button class="btn btn-primary" type="button" onclick="document.getElementById('profilePhotoInput').click();">Upload new image</button>
                     </div>
-                    <input id="profilePhotoInput" type="file" name="photo" accept="image/*" style="display:none;" onchange="previewProfilePhoto(this);">
+                    <input id="profilePhotoInput" form="profileForm" type="file" name="photo" accept="image/*" style="display:none;" onchange="previewProfilePhoto(this);">
                 </div>
             </div>
         </div>
@@ -151,7 +233,7 @@ if (isset($_POST['update'])) {
             <div class="card mb-4 h-100 w-100">
                 <div class="card-header">Account Details</div>
                 <div class="card-body">
-                    <form action="" method="POST" enctype="multipart/form-data">
+                    <form id="profileForm" action="" method="POST" enctype="multipart/form-data">
                         <div class="row gx-3 mb-3">
                             <div class="col-md-6">
                                 <label class="small mb-1" for="inputFirstName">First name</label>
@@ -279,76 +361,106 @@ function previewProfilePhoto(input) {
     <div class="col-md-10">
         <h3 class="mb-3">My Orders</h3>
         <div class="mb-3">
-            <button id="btnToShip" class="btn btn-outline-primary me-2">To Ship</button>
-            <button id="btnToReceive" class="btn btn-outline-primary me-2">To Receive</button>
-            <button id="btnToRate" class="btn btn-outline-primary me-2">To Rate</button>
-            <button id="btnCompleted" class="btn btn-outline-primary">Completed</button>
+            <a href="?section=to_ship" class="btn btn-outline-primary me-2 <?php echo ($activeSection==='to_ship')? 'active':''; ?>">To Ship</a>
+            <a href="?section=to_receive" class="btn btn-outline-primary me-2 <?php echo ($activeSection==='to_receive')? 'active':''; ?>">To Receive</a>
+            <a href="?section=to_rate" class="btn btn-outline-primary me-2 <?php echo ($activeSection==='to_rate')? 'active':''; ?>">To Rate</a>
+            <a href="?section=completed" class="btn btn-outline-primary me-2 <?php echo ($activeSection==='completed')? 'active':''; ?>">Completed</a>
+            <a href="?section=cancelled" class="btn btn-outline-danger <?php echo ($activeSection==='cancelled')? 'active':''; ?>">Cancelled</a>
         </div>
 
-        <div id="sectionToShip" class="order-section">
+        <div id="sectionToShip" class="order-section" style="<?php echo ($activeSection==='to_ship')? 'display:block;':'display:none;'; ?>">
             <h5>To Ship (Awaiting seller to ship)</h5>
             <?php
-            $q = "SELECT o.order_id, o.order_date, ol.product_id, ol.quantity, p.product_name, p.image
-                  FROM orders o
-                  JOIN orderline ol ON o.order_id = ol.order_id
-                  JOIN products p ON ol.product_id = p.product_id
-                  WHERE o.user_id = $user_id AND o.status = 'Pending'
-                  ORDER BY o.order_date DESC";
-            $res = mysqli_query($conn, $q);
-            if ($res && mysqli_num_rows($res) > 0): ?>
-                <div class="list-group">
-                <?php while ($r = mysqli_fetch_assoc($res)): ?>
-                    <div class="list-group-item d-flex align-items-center">
-                        <img src="/db_shoeverse/item/images/<?php echo htmlspecialchars($r['image']); ?>" style="width:80px;height:60px;object-fit:cover;margin-right:12px;">
-                        <div class="flex-grow-1">
-                            <div class="fw-bold"><?php echo htmlspecialchars($r['product_name']); ?></div>
-                            <div>Quantity: <?php echo (int)$r['quantity']; ?></div>
-                            <div class="text-muted">Order: #<?php echo (int)$r['order_id']; ?> | <?php echo htmlspecialchars($r['order_date']); ?></div>
-                        </div>
-                    </div>
-                <?php endwhile; ?>
-                </div>
-            <?php else: ?>
-                <p class="text-muted">No orders in this status.</p>
-            <?php endif; ?>
-        </div>
-
-        <div id="sectionToReceive" class="order-section" style="display:none;">
-            <h5>To Receive (Shipped)</h5>
-            <?php
-            $q = "SELECT o.order_id, o.order_date, ol.product_id, ol.quantity, p.product_name, p.image
-                  FROM orders o
-                  JOIN orderline ol ON o.order_id = ol.order_id
-                  JOIN products p ON ol.product_id = p.product_id
-                  WHERE o.user_id = $user_id AND o.status = 'Shipped'
-                  ORDER BY o.order_date DESC";
-            $res = mysqli_query($conn, $q);
-            if ($res && mysqli_num_rows($res) > 0): ?>
-                <div class="list-group">
-                <?php while ($r = mysqli_fetch_assoc($res)): ?>
-                    <div class="list-group-item d-flex align-items-center">
-                        <img src="/db_shoeverse/item/images/<?php echo htmlspecialchars($r['image']); ?>" style="width:80px;height:60px;object-fit:cover;margin-right:12px;">
-                        <div class="flex-grow-1">
-                            <div class="fw-bold"><?php echo htmlspecialchars($r['product_name']); ?></div>
-                            <div>Quantity: <?php echo (int)$r['quantity']; ?></div>
-                            <div class="text-muted">Order: #<?php echo (int)$r['order_id']; ?> | <?php echo htmlspecialchars($r['order_date']); ?></div>
-                        </div>
-                    </div>
-                <?php endwhile; ?>
-                </div>
-            <?php else: ?>
-                <p class="text-muted">No orders in this status.</p>
-            <?php endif; ?>
-        </div>
-
-        <div id="sectionToRate" class="order-section" style="display:none;">
-            <h5>To Rate (Delivered)</h5>
-            <?php
-            // Show delivered orders that have NOT been reviewed by this user yet
-            $q = "SELECT o.order_id, o.order_date, ol.product_id, ol.quantity, p.product_name, p.image
+            $q = "SELECT o.order_id, o.order_date, ol.product_id, ol.variant_id, ol.quantity, p.product_name, p.image,
+                pv.color_name, pv.size_value
                 FROM orders o
                 JOIN orderline ol ON o.order_id = ol.order_id
                 JOIN products p ON ol.product_id = p.product_id
+                LEFT JOIN product_variants pv ON ol.variant_id = pv.variant_id
+                WHERE o.user_id = $user_id AND o.status = 'Pending'
+                ORDER BY o.order_date DESC";
+            $res = mysqli_query($conn, $q);
+            if ($res && mysqli_num_rows($res) > 0): ?>
+                <div class="list-group">
+                <?php $lastOrderShown = 0; while ($r = mysqli_fetch_assoc($res)): ?>
+                    <div class="list-group-item d-flex align-items-center">
+                        <img src="/db_shoeverse/item/images/<?php echo htmlspecialchars($r['image']); ?>" style="width:80px;height:60px;object-fit:cover;margin-right:12px;">
+                        <div class="flex-grow-1">
+                            <div class="fw-bold"><?php echo htmlspecialchars($r['product_name']); ?></div>
+                            <div>Quantity: <?php echo (int)$r['quantity']; ?></div>
+                            <?php if (!empty($r['color_name']) || !empty($r['size_value'])): ?>
+                                <div class="text-muted">
+                                    <?php if (!empty($r['color_name'])): ?>Color: <?php echo htmlspecialchars($r['color_name']); ?><?php endif; ?>
+                                    <?php if (!empty($r['color_name']) && !empty($r['size_value'])): ?> &middot; <?php endif; ?>
+                                    <?php if (!empty($r['size_value'])): ?>Size: <?php echo htmlspecialchars($r['size_value']); ?><?php endif; ?>
+                                </div>
+                            <?php endif; ?>
+                            <div class="text-muted">Order: #<?php echo (int)$r['order_id']; ?> | <?php echo htmlspecialchars($r['order_date']); ?></div>
+                        </div>
+                        <div>
+                            <?php if ($lastOrderShown !== (int)$r['order_id']): ?>
+                                <form method="POST" onsubmit="return confirm('Cancel this order?');">
+                                    <input type="hidden" name="order_id" value="<?php echo (int)$r['order_id']; ?>">
+                                    <button type="submit" name="cancel_order" class="btn btn-sm btn-outline-danger">Cancel Order</button>
+                                </form>
+                                <?php $lastOrderShown = (int)$r['order_id']; ?>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endwhile; ?>
+                </div>
+            <?php else: ?>
+                <p class="text-muted">No orders in this status.</p>
+            <?php endif; ?>
+        </div>
+
+        <div id="sectionToReceive" class="order-section" style="<?php echo ($activeSection==='to_receive')? 'display:block;':'display:none;'; ?>">
+            <h5>To Receive (Shipped)</h5>
+            <?php
+            $q = "SELECT o.order_id, o.order_date, ol.product_id, ol.variant_id, ol.quantity, p.product_name, p.image,
+                pv.color_name, pv.size_value
+                FROM orders o
+                JOIN orderline ol ON o.order_id = ol.order_id
+                JOIN products p ON ol.product_id = p.product_id
+                LEFT JOIN product_variants pv ON ol.variant_id = pv.variant_id
+                WHERE o.user_id = $user_id AND o.status = 'Shipped'
+                ORDER BY o.order_date DESC";
+            $res = mysqli_query($conn, $q);
+            if ($res && mysqli_num_rows($res) > 0): ?>
+                <div class="list-group">
+                <?php while ($r = mysqli_fetch_assoc($res)): ?>
+                    <div class="list-group-item d-flex align-items-center">
+                        <img src="/db_shoeverse/item/images/<?php echo htmlspecialchars($r['image']); ?>" style="width:80px;height:60px;object-fit:cover;margin-right:12px;">
+                        <div class="flex-grow-1">
+                            <div class="fw-bold"><?php echo htmlspecialchars($r['product_name']); ?></div>
+                            <div>Quantity: <?php echo (int)$r['quantity']; ?></div>
+                            <?php if (!empty($r['color_name']) || !empty($r['size_value'])): ?>
+                                <div class="text-muted">
+                                    <?php if (!empty($r['color_name'])): ?>Color: <?php echo htmlspecialchars($r['color_name']); ?><?php endif; ?>
+                                    <?php if (!empty($r['color_name']) && !empty($r['size_value'])): ?> &middot; <?php endif; ?>
+                                    <?php if (!empty($r['size_value'])): ?>Size: <?php echo htmlspecialchars($r['size_value']); ?><?php endif; ?>
+                                </div>
+                            <?php endif; ?>
+                            <div class="text-muted">Order: #<?php echo (int)$r['order_id']; ?> | <?php echo htmlspecialchars($r['order_date']); ?></div>
+                        </div>
+                    </div>
+                <?php endwhile; ?>
+                </div>
+            <?php else: ?>
+                <p class="text-muted">No orders in this status.</p>
+            <?php endif; ?>
+        </div>
+
+        <div id="sectionToRate" class="order-section" style="<?php echo ($activeSection==='to_rate')? 'display:block;':'display:none;'; ?>">
+            <h5>To Rate (Delivered)</h5>
+            <?php
+            // Show delivered orders that have NOT been reviewed by this user yet
+            $q = "SELECT o.order_id, o.order_date, ol.product_id, ol.variant_id, ol.quantity, p.product_name, p.image,
+                pv.color_name, pv.size_value
+                FROM orders o
+                JOIN orderline ol ON o.order_id = ol.order_id
+                JOIN products p ON ol.product_id = p.product_id
+                LEFT JOIN product_variants pv ON ol.variant_id = pv.variant_id
                 LEFT JOIN reviews r ON r.product_id = ol.product_id AND r.user_id = $user_id
                 WHERE o.user_id = $user_id AND o.status = 'Delivered' AND r.review_id IS NULL
                 ORDER BY o.order_date DESC";
@@ -361,6 +473,13 @@ function previewProfilePhoto(input) {
                         <div class="flex-grow-1">
                             <div class="fw-bold"><?php echo htmlspecialchars($r['product_name']); ?></div>
                             <div>Quantity: <?php echo (int)$r['quantity']; ?></div>
+                            <?php if (!empty($r['color_name']) || !empty($r['size_value'])): ?>
+                                <div class="text-muted">
+                                    <?php if (!empty($r['color_name'])): ?>Color: <?php echo htmlspecialchars($r['color_name']); ?><?php endif; ?>
+                                    <?php if (!empty($r['color_name']) && !empty($r['size_value'])): ?> &middot; <?php endif; ?>
+                                    <?php if (!empty($r['size_value'])): ?>Size: <?php echo htmlspecialchars($r['size_value']); ?><?php endif; ?>
+                                </div>
+                            <?php endif; ?>
                             <div class="text-muted">Order: #<?php echo (int)$r['order_id']; ?> | <?php echo htmlspecialchars($r['order_date']); ?></div>
 
                             <!-- Review form inline -->
@@ -400,13 +519,15 @@ function previewProfilePhoto(input) {
             <?php endif; ?>
         </div>
 
-        <div id="sectionCompleted" class="order-section" style="display:none;">
+        <div id="sectionCompleted" class="order-section" style="<?php echo ($activeSection==='completed')? 'display:block;':'display:none;'; ?>">
             <h5>Completed Orders</h5>
             <?php
-            $q = "SELECT o.order_id, o.order_date, ol.product_id, ol.quantity, p.product_name, p.image
+            $q = "SELECT o.order_id, o.order_date, ol.product_id, ol.variant_id, ol.quantity, p.product_name, p.image,
+                pv.color_name, pv.size_value
                 FROM orders o
                 JOIN orderline ol ON o.order_id = ol.order_id
                 JOIN products p ON ol.product_id = p.product_id
+                LEFT JOIN product_variants pv ON ol.variant_id = pv.variant_id
                 WHERE o.user_id = $user_id AND o.status IN ('Delivered','Completed')
                 ORDER BY o.order_date DESC";
             $res = mysqli_query($conn, $q);
@@ -418,6 +539,13 @@ function previewProfilePhoto(input) {
                         <div class="flex-grow-1">
                             <div class="fw-bold"><?php echo htmlspecialchars($r['product_name']); ?></div>
                             <div>Quantity: <?php echo (int)$r['quantity']; ?></div>
+                            <?php if (!empty($r['color_name']) || !empty($r['size_value'])): ?>
+                                <div class="text-muted">
+                                    <?php if (!empty($r['color_name'])): ?>Color: <?php echo htmlspecialchars($r['color_name']); ?><?php endif; ?>
+                                    <?php if (!empty($r['color_name']) && !empty($r['size_value'])): ?> &middot; <?php endif; ?>
+                                    <?php if (!empty($r['size_value'])): ?>Size: <?php echo htmlspecialchars($r['size_value']); ?><?php endif; ?>
+                                </div>
+                            <?php endif; ?>
                             <div class="text-muted">Order: #<?php echo (int)$r['order_id']; ?> | <?php echo htmlspecialchars($r['order_date']); ?></div>
                         </div>
                     </div>
@@ -428,7 +556,44 @@ function previewProfilePhoto(input) {
             <?php endif; ?>
         </div>
 
-        <div id="sectionReviewed" class="order-section" style="display:none;">
+        <div id="sectionCancelled" class="order-section" style="<?php echo ($activeSection==='cancelled')? 'display:block;':'display:none;'; ?>">
+            <h5>Cancelled Orders</h5>
+            <?php
+            $q = "SELECT o.order_id, o.order_date, ol.product_id, ol.variant_id, ol.quantity, p.product_name, p.image,
+                pv.color_name, pv.size_value
+                FROM orders o
+                JOIN orderline ol ON o.order_id = ol.order_id
+                JOIN products p ON ol.product_id = p.product_id
+                LEFT JOIN product_variants pv ON ol.variant_id = pv.variant_id
+                WHERE o.user_id = $user_id AND o.status = 'Cancelled'
+                ORDER BY o.order_date DESC";
+            $res = mysqli_query($conn, $q);
+            if ($res && mysqli_num_rows($res) > 0): ?>
+                <div class="list-group">
+                <?php while ($r = mysqli_fetch_assoc($res)): ?>
+                    <div class="list-group-item d-flex align-items-center">
+                        <img src="/db_shoeverse/item/images/<?php echo htmlspecialchars($r['image']); ?>" style="width:80px;height:60px;object-fit:cover;margin-right:12px;">
+                        <div class="flex-grow-1">
+                            <div class="fw-bold"><?php echo htmlspecialchars($r['product_name']); ?></div>
+                            <div>Quantity: <?php echo (int)$r['quantity']; ?></div>
+                            <?php if (!empty($r['color_name']) || !empty($r['size_value'])): ?>
+                                <div class="text-muted">
+                                    <?php if (!empty($r['color_name'])): ?>Color: <?php echo htmlspecialchars($r['color_name']); ?><?php endif; ?>
+                                    <?php if (!empty($r['color_name']) && !empty($r['size_value'])): ?> &middot; <?php endif; ?>
+                                    <?php if (!empty($r['size_value'])): ?>Size: <?php echo htmlspecialchars($r['size_value']); ?><?php endif; ?>
+                                </div>
+                            <?php endif; ?>
+                            <div class="text-muted">Order: #<?php echo (int)$r['order_id']; ?> | <?php echo htmlspecialchars($r['order_date']); ?></div>
+                        </div>
+                    </div>
+                <?php endwhile; ?>
+                </div>
+            <?php else: ?>
+                <p class="text-muted">No cancelled orders.</p>
+            <?php endif; ?>
+        </div>
+
+        <div id="sectionReviewed" class="order-section" style="<?php echo (($activeSection==='reviewed' || $activeSection==='to_rate')? 'display:block;':'display:none;'); ?>">
             <h5>Reviewed Products</h5>
             <?php
             // Show unique products that this user has reviewed (use reviews as base to avoid duplicates)
@@ -484,35 +649,7 @@ function previewProfilePhoto(input) {
 </div>
 
 <script>
-document.getElementById('btnToShip').addEventListener('click', function(){
-    document.getElementById('sectionToShip').style.display='block';
-    document.getElementById('sectionToReceive').style.display='none';
-    document.getElementById('sectionToRate').style.display='none';
-    document.getElementById('sectionReviewed').style.display='none';
-    document.getElementById('sectionCompleted').style.display='none';
-});
-document.getElementById('btnToReceive').addEventListener('click', function(){
-    document.getElementById('sectionToShip').style.display='none';
-    document.getElementById('sectionToReceive').style.display='block';
-    document.getElementById('sectionToRate').style.display='none';
-    document.getElementById('sectionReviewed').style.display='none';
-    document.getElementById('sectionCompleted').style.display='none';
-});
-document.getElementById('btnToRate').addEventListener('click', function(){
-    document.getElementById('sectionToShip').style.display='none';
-    document.getElementById('sectionToReceive').style.display='none';
-    document.getElementById('sectionToRate').style.display='block';
-    // Show reviewed products below To Rate
-    document.getElementById('sectionReviewed').style.display='block';
-    document.getElementById('sectionCompleted').style.display='none';
-});
-document.getElementById('btnCompleted').addEventListener('click', function(){
-    document.getElementById('sectionToShip').style.display='none';
-    document.getElementById('sectionToReceive').style.display='none';
-    document.getElementById('sectionToRate').style.display='none';
-    document.getElementById('sectionReviewed').style.display='none';
-    document.getElementById('sectionCompleted').style.display='block';
-});
+// Sections are toggled server-side via ?section=... links. No JS required here.
 </script>
 
 <?php include __DIR__ . '/../includes/footer.php'; ?>

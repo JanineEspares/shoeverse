@@ -82,17 +82,42 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $status = 'Paid';
     }
 
-    // Insert into orders using prepared statement. Include payment columns only if present in DB.
-    $hasPaymentCols = false;
+    // Insert into orders using prepared statement. Detect payment-related columns separately
+    $hasPaymentMethod = false;
+    $hasPaymentInfo = false;
     $colCheck = mysqli_query($conn, "SHOW COLUMNS FROM orders LIKE 'payment_method'");
-    if ($colCheck && mysqli_num_rows($colCheck) > 0) { $hasPaymentCols = true; }
+    if ($colCheck && mysqli_num_rows($colCheck) > 0) { $hasPaymentMethod = true; }
+    $colCheck2 = mysqli_query($conn, "SHOW COLUMNS FROM orders LIKE 'payment_info'");
+    if ($colCheck2 && mysqli_num_rows($colCheck2) > 0) { $hasPaymentInfo = true; }
 
-    if ($hasPaymentCols) {
-        $stmt = mysqli_prepare($conn, "INSERT INTO orders (user_id, order_date, shipping_fee, status, shipping_address, payment_method, payment_info) VALUES (?, ?, ?, ?, ?, ?, ?)");
-        mysqli_stmt_bind_param($stmt, 'isdssss', $user_id, $order_date, $shipping_fee, $status, $shipping_address, $payment_method, $payment_info);
-    } else {
-        $stmt = mysqli_prepare($conn, "INSERT INTO orders (user_id, order_date, shipping_fee, status, shipping_address) VALUES (?, ?, ?, ?, ?)");
-        mysqli_stmt_bind_param($stmt, 'isdss', $user_id, $order_date, $shipping_fee, $status, $shipping_address);
+    // Build dynamic INSERT depending on available columns
+    $cols = ['user_id','order_date','shipping_fee','status','shipping_address'];
+    $placeholders = ['?','?','?','?','?'];
+    $types = 'isdss';
+    $values = [$user_id, $order_date, $shipping_fee, $status, $shipping_address];
+
+    if ($hasPaymentMethod) {
+        $cols[] = 'payment_method';
+        $placeholders[] = '?';
+        $types .= 's';
+        $values[] = $payment_method;
+    }
+    if ($hasPaymentInfo) {
+        $cols[] = 'payment_info';
+        $placeholders[] = '?';
+        $types .= 's';
+        $values[] = $payment_info;
+    }
+
+    $sql = 'INSERT INTO orders (' . implode(', ', $cols) . ') VALUES (' . implode(', ', $placeholders) . ')';
+    $stmt = mysqli_prepare($conn, $sql);
+    if ($stmt) {
+        // bind params dynamically
+        $bind_names = [];
+        $bind_names[] = $stmt;
+        $bind_names[] = $types;
+        foreach ($values as $i => $v) $bind_names[] = & $values[$i];
+        call_user_func_array('mysqli_stmt_bind_param', $bind_names);
     }
 
     if (mysqli_stmt_execute($stmt)) {
@@ -209,24 +234,30 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
         <div class="mb-3">
             <label class="form-label fw-bold">Payment Method:</label>
-            <div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="payment_method" id="pm_cod" value="COD" checked>
-                    <label class="form-check-label" for="pm_cod">Cash on Delivery</label>
-                </div>
-                <div class="form-check form-check-inline">
-                    <input class="form-check-input" type="radio" name="payment_method" id="pm_online" value="Online">
-                    <label class="form-check-label" for="pm_online">Online Payment</label>
-                </div>
-            </div>
-        </div>
+            <!-- Radios and online fields are siblings so we can toggle visibility with CSS only -->
+            <div class="payment-block p-2 border rounded">
+                <input type="radio" name="payment_method" id="pm_cod" value="COD" checked>
+                <label for="pm_cod" class="me-3">Cash on Delivery</label>
 
-        <div id="onlinePaymentFields" style="display:none;">
-            <div class="mb-3">
-                <label class="form-label">Enter payment amount (₱)</label>
-                <input type="number" step="0.01" min="0" name="payment_amount" class="form-control" placeholder="<?php echo number_format($grand_total_display,2); ?>">
-                <div class="form-text">Type the amount you paid online (must be at least the order total).</div>
+                <input type="radio" name="payment_method" id="pm_online" value="Online">
+                <label for="pm_online">Online Payment</label>
+
+                <div id="onlinePaymentFields" class="mt-3">
+                    <div class="mb-3">
+                        <label class="form-label">Enter payment amount (₱)</label>
+                        <input type="number" step="0.01" min="0" name="payment_amount" class="form-control" placeholder="<?php echo number_format($grand_total_display,2); ?>">
+                        <div class="form-text">Type the amount you paid online (must be at least the order total).</div>
+                    </div>
+                </div>
             </div>
+            <style>
+                /* Hide online fields unless Online is selected (CSS-only toggle) */
+                #onlinePaymentFields { display: none; }
+                /* When the Online radio is checked, show the fields (they are siblings inside .payment-block) */
+                #pm_online:checked ~ #onlinePaymentFields { display: block; }
+                /* Minor spacing for radio labels */
+                .payment-block input[type=radio] { margin-right: .25rem; }
+            </style>
         </div>
 
         <div class="text-end">
@@ -240,19 +271,3 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
 include '../includes/footer.php';
 ?>
-
-<script>
-// Toggle online payment fields
-document.addEventListener('DOMContentLoaded', function(){
-    const pmOnline = document.getElementById('pm_online');
-    const pmCod = document.getElementById('pm_cod');
-    const onlineFields = document.getElementById('onlinePaymentFields');
-    function toggle(){
-        if (pmOnline.checked) onlineFields.style.display = '';
-        else onlineFields.style.display = 'none';
-    }
-    pmOnline.addEventListener('change', toggle);
-    pmCod.addEventListener('change', toggle);
-    toggle();
-});
-</script>
