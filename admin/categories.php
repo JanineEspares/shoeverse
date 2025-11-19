@@ -2,14 +2,12 @@
 include '../includes/config.php';
 include '../includes/adminHeader.php';
 
-// Restrict access to Admins only
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'Admin') {
     echo "<div class='alert alert-danger text-center'>Access denied. Admins only.</div>";
     include '../includes/footer.php';
     exit();
 }
 
-// CREATE category
 if (isset($_POST['add_category'])) {
     $category_name = mysqli_real_escape_string($conn, $_POST['category_name']);
 
@@ -26,18 +24,32 @@ if (isset($_POST['add_category'])) {
     }
 }
 
-// DELETE category
 if (isset($_GET['delete'])) {
     $category_id = intval($_GET['delete']);
-    $delete = mysqli_query($conn, "DELETE FROM category WHERE category_id = '$category_id'");
-    if ($delete) {
-        echo "<script>alert('Category deleted successfully!'); window.location.href='categories.php';</script>";
+    // Prevent deleting a category that is still used by products
+    $chk = mysqli_query($conn, "SELECT COUNT(*) AS cnt FROM products WHERE category_id = '$category_id'");
+    $hasProducts = false;
+    if ($chk) {
+        $r = mysqli_fetch_assoc($chk);
+        if ($r && intval($r['cnt']) > 0) $hasProducts = true;
+    }
+
+    if ($hasProducts) {
+        echo "<div class='container mt-4'><div class='alert alert-warning text-center'>Cannot delete this category because there are products assigned to it. Delete or reassign those products first.<br><a href='products.php' class='btn btn-sm btn-primary mt-2'>View products</a></div></div>";
     } else {
-        echo "<div class='alert alert-danger text-center'>Error deleting category: " . mysqli_error($conn) . "</div>";
+        $delete = mysqli_query($conn, "DELETE FROM category WHERE category_id = '$category_id'");
+        if ($delete) {
+            echo "<script>alert('Category deleted successfully!'); window.location.href='categories.php';</script>";
+        } else {
+            if (mysqli_errno($conn) == 1451) {
+                echo "<div class='container mt-4'><div class='alert alert-warning text-center'>Cannot delete this category due to related records.<br><a href='categories.php' class='btn btn-sm btn-primary mt-2'>Back</a></div></div>";
+            } else {
+                echo "<div class='alert alert-danger text-center'>Error deleting category: " . mysqli_error($conn) . "</div>";
+            }
+        }
     }
 }
 
-// UPDATE category
 if (isset($_POST['update_category'])) {
     $category_id = intval($_POST['category_id']);
     $category_name = mysqli_real_escape_string($conn, $_POST['category_name']);
@@ -56,14 +68,12 @@ if (isset($_POST['update_category'])) {
     }
 }
 
-// FETCH all categories
-$categories = mysqli_query($conn, "SELECT * FROM category ORDER BY category_id DESC");
+$categories = mysqli_query($conn, "SELECT * FROM category ORDER BY category_id ASC");
 ?>
 
 <div class="container mt-4">
     <h2 class="text-center mb-4">🗂️ Manage Categories</h2>
 
-    <!-- Add Category -->
     <div class="card shadow-sm mb-4">
         <div class="card-header bg-dark text-white fw-bold">Add New Category</div>
         <div class="card-body">
@@ -80,7 +90,6 @@ $categories = mysqli_query($conn, "SELECT * FROM category ORDER BY category_id D
         </div>
     </div>
 
-    <!-- Category List -->
     <div class="card shadow-sm">
         <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center">
             <span>Category List</span>
@@ -107,7 +116,6 @@ $categories = mysqli_query($conn, "SELECT * FROM category ORDER BY category_id D
                                 </td>
                             </tr>
 
-                            <!-- Edit Modal -->
                             <div class="modal fade" id="editCategory<?= $row['category_id'] ?>" tabindex="-1" aria-hidden="true">
                                 <div class="modal-dialog modal-dialog-centered">
                                     <div class="modal-content">

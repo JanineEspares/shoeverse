@@ -1,12 +1,8 @@
 <?php
-// shoeverse/includes/adminHeader.php
 session_start();
-// include config.php relative to this file to avoid relying on caller working directory
 include __DIR__ . '/config.php';
 
-// Admin access check
 if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'Admin') {
-    // redirect to login with a message
     $_SESSION['auth_message'] = 'Please login as an administrator to access the admin panel.';
     header('Location: /db_shoeverse/user/login.php');
     exit();
@@ -20,25 +16,21 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'Admin') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Panel | ShoeVerse</title>
     
-    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" 
         integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
 
-    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css" 
         integrity="sha512-z3gLpd7yknf1YoNbCzqRKc4qyor8gaKU1qmn+CShxbuBusANI9QpRohGBreCFkKxLhei6S9CQXFEbbKuqLg0DA==" 
         crossorigin="anonymous" referrerpolicy="no-referrer" />
 
-    <!-- Custom CSS -->
     <link href="/db_shoeverse/includes/style/style.css" rel="stylesheet" type="text/css">
 
-    <!-- Bootstrap JS Bundle -->
+    
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js" 
         integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL" crossorigin="anonymous"></script>
 </head>
 <body>
 
-<!-- Top navbar with search -->
 <nav class="navbar navbar-light bg-light justify-content-between px-3">
     <a class="navbar-brand">Admin Panel</a>
     <form action="<?php echo $_SERVER['PHP_SELF']; ?>" method="GET" class="d-flex">
@@ -47,7 +39,6 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'Admin') {
     </form>
 </nav>
 
-<!-- Admin menu tabs -->
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark mt-2">
     <div class="container-fluid">
         <ul class="navbar-nav me-auto mb-2 mb-lg-0">

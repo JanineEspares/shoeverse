@@ -2,14 +2,12 @@
 include '../includes/config.php';
 include '../includes/adminHeader.php';
 
-// Restrict access to Admins only
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'Admin') {
     echo "<div class='alert alert-danger text-center'>Access denied. Admins only.</div>";
     include '../includes/footer.php';
     exit();
 }
 
-// Validate order ID
 if (!isset($_GET['id'])) {
     echo "<div class='alert alert-danger text-center'>Invalid order ID.</div>";
     include '../includes/footer.php';
@@ -18,7 +16,6 @@ if (!isset($_GET['id'])) {
 
 $order_id = intval($_GET['id']);
 
-// Fetch order details
 $order_query = "
     SELECT o.*, u.fname, u.lname, u.email 
     FROM orders o 
@@ -34,7 +31,6 @@ if (!$order) {
     exit();
 }
 
-// Fetch order items
 $order_items_query = "
     SELECT ol.*, p.product_name, p.price, p.image, pv.color_name, pv.size_value
     FROM orderline ol
@@ -77,7 +73,6 @@ $order_items = mysqli_query($conn, $order_items_query);
         </div>
     </div>
 
-    <!-- Order Items -->
     <div class="card shadow-sm">
         <div class="card-header bg-dark text-white fw-bold">Order Items</div>
         <div class="card-body table-responsive">

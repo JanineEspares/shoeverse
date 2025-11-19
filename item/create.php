@@ -3,9 +3,9 @@ session_start();
 include('../includes/header.php');
 include('../includes/config.php');
 
-// Fetch brands and categories for dropdowns
 $brandsResult = mysqli_query($conn, "SELECT * FROM brands");
 $categoriesResult = mysqli_query($conn, "SELECT * FROM category");
+// Create (Frontend form) - product creation form posts to `item/store.php`
 ?>
 
 <body>

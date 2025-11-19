@@ -1,6 +1,4 @@
 <?php
-// includes/alert.php
-// Renders flash messages stored via helpers::flash()
 if (session_status() === PHP_SESSION_NONE) {
 	session_start();
 }
@@ -8,7 +6,6 @@ if (session_status() === PHP_SESSION_NONE) {
 if (function_exists('get_flashes')) {
 	$flashes = get_flashes();
 } else {
-	// fallback: read raw session key if helper isn't loaded
 	$flashes = isset($_SESSION['flash']) ? $_SESSION['flash'] : [];
 	if (isset($_SESSION['flash'])) unset($_SESSION['flash']);
 }

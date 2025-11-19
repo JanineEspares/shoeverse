@@ -1,15 +1,11 @@
 <?php
-// shoeverse/item/index.php
-// Handles both product listing and single product detail view
 
 include '../includes/config.php';
 include '../includes/header.php';
 
-// If an ID is provided, show detail view
 if (isset($_GET['id']) && !empty($_GET['id'])) {
     $product_id = intval($_GET['id']);
 
-    // Fetch product
     $stmt = mysqli_prepare($conn,
         "SELECT p.*, b.brand_name, c.category_name
          FROM products p
@@ -23,7 +19,6 @@ if (isset($_GET['id']) && !empty($_GET['id'])) {
     if ($res && mysqli_num_rows($res) > 0) {
         $product = mysqli_fetch_assoc($res);
 
-        // Fetch gallery images
         $images = [];
         if (!empty($product['image'])) { $images[] = $product['image']; }
         $imgsRes = mysqli_query($conn, "SELECT image FROM product_images WHERE product_id = " . $product_id);
@@ -34,7 +29,6 @@ if (isset($_GET['id']) && !empty($_GET['id'])) {
             $images[] = 'https://via.placeholder.com/450x450?text=ShoeVerse';
         }
 
-        // Handle Add-to-Cart POST without JS: compute variant_id server-side and redirect to cart handler
         if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_to_cart'])) {
           $post_product_id = intval($_POST['product_id'] ?? 0);
           $post_color = isset($_POST['color']) ? trim($_POST['color']) : '';
@@ -53,13 +47,11 @@ if (isset($_GET['id']) && !empty($_GET['id'])) {
             }
           }
 
-          // Redirect to cart/cart_update.php with resolved variant_id (0 if not found)
           $redir = "../cart/cart_update.php?action=add&id=" . urlencode($post_product_id) . "&quantity=" . urlencode($post_qty);
           if ($resolved_variant_id > 0) $redir .= "&variant_id=" . urlencode($resolved_variant_id);
           header('Location: ' . $redir);
           exit();
         }
-        // Fetch variants
         $varRes = mysqli_query($conn, "SELECT variant_id, color_name, color_image, size_value, stock FROM product_variants WHERE product_id = " . $product_id . " ORDER BY color_name, size_value");
         $colors = [];
         $sizesByColor = [];
@@ -74,7 +66,7 @@ if (isset($_GET['id']) && !empty($_GET['id'])) {
                 if (!in_array($v['size_value'], $sizesByColor[$c])) $sizesByColor[$c][] = $v['size_value'];
                 $stockMap[$c.'|'.$v['size_value']] = (int)$v['stock'];
                 $variantMap[$c.'|'.$v['size_value']] = (int)$v['variant_id'];
-                // remember color image per color
+
                 if (!isset($colorImage[$c]) && !empty($v['color_image'])) {
                     $colorImage[$c] = $v['color_image'];
                 }
@@ -85,7 +77,7 @@ if (isset($_GET['id']) && !empty($_GET['id'])) {
           <div class="col-md-6">
             <div class="text-center mb-3">
               <?php
-                // If an image is requested via GET param, and it exists in the images list, use it as main image
+                
                 $selectedImg = null;
                 if (isset($_GET['img'])) {
                     $req = $_GET['img'];
@@ -124,8 +116,6 @@ if (isset($_GET['id']) && !empty($_GET['id'])) {
             <p><?php echo nl2br(htmlspecialchars($product['description'])); ?></p>
 
             <?php
-            // Only show variant selectors and Add-to-Cart to non-admin users (customers).
-            // Admins should see product information only (no buttons, selects or forms).
             $isAdmin = isset($_SESSION['role']) && strtolower(trim($_SESSION['role'])) === 'admin';
             if (!$isAdmin):
             ?>
@@ -150,7 +140,7 @@ if (isset($_GET['id']) && !empty($_GET['id'])) {
                   <label class="form-label">Size</label>
                   <?php $selectedColor = isset($_GET['color']) ? $_GET['color'] : null; ?>
                   <?php if ($selectedColor && isset($sizesByColor[$selectedColor])): ?>
-                    <!-- Render sizes as links so clicking a size reloads the page with color+size and shows stock immediately (no extra button) -->
+                    
                     <div class="d-flex flex-wrap gap-2">
                       <?php foreach ($sizesByColor[$selectedColor] as $sz):
                         $sizeLink = 'index.php?id=' . urlencode($product_id) . '&color=' . urlencode($selectedColor) . '&size=' . urlencode($sz);
@@ -185,7 +175,7 @@ if (isset($_GET['id']) && !empty($_GET['id'])) {
                 <?php endif; ?>
               </form>
 
-            <?php else: /* Admin read-only view: show colors, sizes and stock as information (no buttons, selects, forms) */ ?>
+            <?php else:  ?>
               <?php if (!empty($colors)): ?>
                 <div class="mb-3">
                   <label class="form-label">Color / Sizes (read-only)</label>
@@ -218,7 +208,7 @@ if (isset($_GET['id']) && !empty($_GET['id'])) {
               <?php else: ?>
                 <div class="mb-3 text-muted">No variant information available.</div>
               <?php endif; ?>
-            <?php endif; /* end role-based UI */ ?>
+            <?php endif;  ?>
 
             <a href="../index.php" class="btn btn-outline-secondary">← Back to Shop</a>
           </div>
@@ -226,7 +216,6 @@ if (isset($_GET['id']) && !empty($_GET['id'])) {
 
         
         <?php
-        // Fetch and display reviews only (no review submission form)
         $reviews = [];
         $rstmt = mysqli_prepare($conn, "SELECT r.review_id, r.user_id, r.rating, r.review_text, r.created_at, u.fname, u.lname FROM reviews r JOIN users u ON r.user_id = u.user_id WHERE r.product_id = ? ORDER BY r.created_at DESC");
         mysqli_stmt_bind_param($rstmt, 'i', $product['product_id']);
@@ -264,27 +253,20 @@ if (isset($_GET['id']) && !empty($_GET['id'])) {
     exit();
 }
 
-// Otherwise: product listing (grid)
-
-// Add New Product button for Admins
 if (isset($_SESSION['role']) && $_SESSION['role'] === 'Admin') {
     echo '<div class="mb-3 text-end">
             <a href="create.php" class="btn btn-success">+ Add New Product</a>
           </div>';
 }
 
-// ---------- Product filters (brand / category) for customers ----------
-// Filters
 $filter_brand = isset($_GET['brand']) ? intval($_GET['brand']) : 0;
 $filter_category = isset($_GET['category']) ? intval($_GET['category']) : 0;
-// Search query from navbar
+
 $search_q = isset($_GET['q']) ? trim($_GET['q']) : '';
 
-// Fetch brand and category lists for the filter selects
 $brandsList = mysqli_query($conn, "SELECT brand_id, brand_name FROM brands ORDER BY brand_name ASC");
 $categoriesList = mysqli_query($conn, "SELECT category_id, category_name FROM category ORDER BY category_name ASC");
 
-// Build product query with optional filters
 $where = '';
 if ($filter_brand > 0) { $where .= " AND p.brand_id = $filter_brand"; }
 if ($filter_category > 0) { $where .= " AND p.category_id = $filter_category"; }
@@ -304,7 +286,6 @@ $result = mysqli_query($conn, $query);
 
 <h2 class="text-center mb-4">All Products</h2>
 
-<!-- Filter bar -->
 <div class="row mb-3">
   <div class="col-md-8">
     <form method="GET" class="row g-2 align-items-center">
@@ -359,7 +340,7 @@ $result = mysqli_query($conn, $query);
             </p>
 
             <div class="mt-auto">
-              <!-- Primary action: go to product detail. No fragment so page won't auto-scroll to reviews. -->
+              
               <a href="index.php?id=<?php echo $row['product_id']; ?>" class="btn btn-primary btn-sm w-100 mb-2">
                 Add to Cart
               </a>

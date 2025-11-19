@@ -1,4 +1,5 @@
 <?php
+// Delete (Frontend handler) - simple product delete (may fail if FK constraints exist)
 session_start();
 include('../includes/config.php');
 
@@ -9,7 +10,6 @@ if (!isset($_GET['id'])) {
 
 $product_id = $_GET['id'];
 
-// Delete the product
 $query = "DELETE FROM products WHERE product_id = $product_id";
 
 if (mysqli_query($conn, $query)) {

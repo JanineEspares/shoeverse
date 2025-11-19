@@ -2,18 +2,15 @@
 include '../includes/config.php';
 include '../includes/adminHeader.php';
 
-// Restrict access to Admins only
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'Admin') {
     echo "<div class='alert alert-danger text-center'>Access denied. Admins only.</div>";
     include '../includes/footer.php';
     exit();
 }
 
-// Handle delete request
 if (isset($_GET['delete'])) {
     $user_id = intval($_GET['delete']);
 
-    // Prevent admin from deleting themselves
     if ($user_id == $_SESSION['user_id']) {
         echo "<script>alert('You cannot delete your own account.'); window.location.href='users.php';</script>";
         exit();
@@ -28,7 +25,6 @@ if (isset($_GET['delete'])) {
     }
 }
 
-// Fetch all users
 $query = "SELECT * FROM users ORDER BY role ASC, lname ASC";
 $users = mysqli_query($conn, $query);
 ?>
@@ -77,7 +73,6 @@ $users = mysqli_query($conn, $query);
                                        class="btn btn-sm btn-danger" 
                                        onclick="return confirm('Are you sure you want to delete this user?');">🗑️ Delete</a>
 
-                                    <!-- Activate / Deactivate -->
                                     <form method="POST" action="updateUser.php" style="display:inline-block;margin-left:6px;">
                                         <input type="hidden" name="user_id" value="<?= $user['user_id'] ?>">
                                         <input type="hidden" name="action" value="<?= (isset($user['is_active']) && $user['is_active']) ? 'deactivate' : 'activate' ?>">
@@ -88,7 +83,6 @@ $users = mysqli_query($conn, $query);
                                 </td>
                             </tr>
 
-                            <!-- Edit Role Modal -->
                             <div class="modal fade" id="editUser<?= $user['user_id'] ?>" tabindex="-1" aria-hidden="true">
                                 <div class="modal-dialog modal-dialog-centered">
                                     <div class="modal-content">

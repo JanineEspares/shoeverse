@@ -10,7 +10,7 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Admin') {
     exit;
 }
 
-// Get product ID from URL or POST (allow POST back from variant add/remove buttons)
+// Update (Edit form) - shows existing product data and variant inputs for editing
 $product_id = null;
 if (isset($_GET['id'])) {
     $product_id = intval($_GET['id']);
@@ -22,7 +22,6 @@ if (isset($_GET['id'])) {
     exit;
 }
 
-// Fetch product
 $result = mysqli_query($conn, "SELECT * FROM products WHERE product_id = $product_id");
 if (mysqli_num_rows($result) == 0) {
     echo "<p class='text-danger'>Product not found.</p>";
@@ -32,18 +31,15 @@ if (mysqli_num_rows($result) == 0) {
 
 $product = mysqli_fetch_assoc($result);
 
-// Fetch brands and categories
 $brandsResult = mysqli_query($conn, "SELECT * FROM brands");
 $categoriesResult = mysqli_query($conn, "SELECT * FROM category");
 
-// Fetch product images (gallery)
 $galleryRes = mysqli_query($conn, "SELECT image FROM product_images WHERE product_id = $product_id");
 $galleryImages = [];
 if ($galleryRes) {
     while ($gi = mysqli_fetch_assoc($galleryRes)) { $galleryImages[] = $gi['image']; }
 }
 
-// Fetch variants for this product
 $varRes = mysqli_query($conn, "SELECT variant_id, color_name, color_image, size_value, stock FROM product_variants WHERE product_id = " . $product_id . " ORDER BY color_name, size_value");
 $existingVariants = [];
 if ($varRes && mysqli_num_rows($varRes) > 0) {
@@ -52,8 +48,6 @@ if ($varRes && mysqli_num_rows($varRes) > 0) {
     }
 }
 
-// Handle PHP-only variant add/remove controls: if this page is POSTed back with
-// variant management actions, rebuild $existingVariants from the posted arrays.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['add_variant_row']) || isset($_POST['remove_variant']))) {
     $p_ids = isset($_POST['variant_id']) && is_array($_POST['variant_id']) ? $_POST['variant_id'] : [];
     $p_colors = isset($_POST['variant_color']) && is_array($_POST['variant_color']) ? $_POST['variant_color'] : [];
@@ -61,7 +55,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['add_variant_row']) |
     $p_stocks = isset($_POST['variant_stock']) && is_array($_POST['variant_stock']) ? $_POST['variant_stock'] : [];
     $p_existing_imgs = isset($_POST['variant_existing_color_image']) && is_array($_POST['variant_existing_color_image']) ? $_POST['variant_existing_color_image'] : [];
 
-    // Remove action
     if (isset($_POST['remove_variant'])) {
         $remIdx = intval($_POST['remove_variant']);
         if (isset($p_ids[$remIdx])) unset($p_ids[$remIdx]);
@@ -69,7 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['add_variant_row']) |
         if (isset($p_sizes[$remIdx])) unset($p_sizes[$remIdx]);
         if (isset($p_stocks[$remIdx])) unset($p_stocks[$remIdx]);
         if (isset($p_existing_imgs[$remIdx])) unset($p_existing_imgs[$remIdx]);
-        // reindex
+     
         $p_ids = array_values($p_ids);
         $p_colors = array_values($p_colors);
         $p_sizes = array_values($p_sizes);
@@ -77,9 +70,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['add_variant_row']) |
         $p_existing_imgs = array_values($p_existing_imgs);
     }
 
-    // (no duplicate action) - only add/remove handled here
-
-    // Add action
     if (isset($_POST['add_variant_row'])) {
         $p_ids[] = '';
         $p_colors[] = '';
@@ -88,7 +78,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['add_variant_row']) |
         $p_existing_imgs[] = '';
     }
 
-    // Rebuild $existingVariants from posted arrays so the form re-renders with current values
     $existingVariants = [];
     $count = max( count($p_ids), count($p_colors), count($p_sizes), count($p_stocks), count($p_existing_imgs) );
     for ($i=0;$i<$count;$i++) {
@@ -138,7 +127,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['add_variant_row']) |
             <input type="text" class="form-control" name="product_name" value="<?php echo $product['product_name']; ?>">
         </div>
 
-        <!-- product-level Size removed: column no longer exists in products table -->
 
         <div class="form-group mb-3">
             <label>Price</label>
@@ -179,7 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (isset($_POST['add_variant_row']) |
                 <?php endforeach; ?>
             </div>
             <input type="file" name="images[]" id="newGalleryInput" class="form-control mb-2" multiple accept="image/*">
-            <!-- No client-side preview (server-side only). New files will be uploaded when the form posts to update.php. -->
+           
         </div>
 
         <hr>

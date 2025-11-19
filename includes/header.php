@@ -1,5 +1,5 @@
 <?php
-session_start(); // Always start the session before any HTML
+session_start(); 
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -11,7 +11,6 @@ session_start(); // Always start the session before any HTML
 </head>
 <body>
 
-<!-- Navbar -->
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
   <div class="container">
     <a class="navbar-brand fw-bold" href="/db_shoeverse/index.php">ShoeVerse</a>
@@ -21,20 +20,18 @@ session_start(); // Always start the session before any HTML
     </button>
 
     <div class="collapse navbar-collapse" id="navbarNav">
-      <!-- Left side links -->
+   
       <ul class="navbar-nav me-auto mb-2 mb-lg-0">
         <li class="nav-item"><a class="nav-link" href="/db_shoeverse/index.php">Home</a></li>
         <li class="nav-item"><a class="nav-link" href="/db_shoeverse/item/index.php">Products</a></li>
         <li class="nav-item"><a class="nav-link" href="/db_shoeverse/cart/view_cart.php">Cart</a></li>
       </ul>
 
-      <!-- Search (customers) -->
       <form class="d-flex me-3" action="/db_shoeverse/item/index.php" method="GET">
         <input class="form-control me-2" type="search" name="q" placeholder="Search products" aria-label="Search">
         <button class="btn btn-outline-success" type="submit">Search</button>
       </form>
 
-      <!-- Right side user links -->
       <ul class="navbar-nav">
         <?php if (isset($_SESSION['user_id'])): ?>
           <li class="nav-item dropdown">
@@ -55,9 +52,7 @@ session_start(); // Always start the session before any HTML
   </div>
 </nav>
 
-<!-- Start main container -->
 <div class="container mt-4">
   <?php
-  // render flash alerts site-wide (helpers may not be loaded yet in every page)
   include __DIR__ . '/alert.php';
   ?>

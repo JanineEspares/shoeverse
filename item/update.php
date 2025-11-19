@@ -2,6 +2,7 @@
 session_start();
 include('../includes/config.php');
 
+// Update (handler) - process product updates, images, and variants
 if (!isset($_POST['product_id'])) {
     header("Location: index.php");
     exit;
@@ -16,7 +17,6 @@ $description = isset($_POST['description']) ? trim($_POST['description']) : '';
 $brand_id = isset($_POST['brand_id']) ? intval($_POST['brand_id']) : 0;
 $category_id = isset($_POST['category_id']) ? intval($_POST['category_id']) : 0;
 
-// Handle main image upload (optional)
 $imageName = null;
 if (isset($_FILES['img_path']) && !empty($_FILES['img_path']['name'])) {
     $image = time() . '_' . basename($_FILES['img_path']['name']);
@@ -26,7 +26,6 @@ if (isset($_FILES['img_path']) && !empty($_FILES['img_path']['name'])) {
     }
 }
 
-// If variants are submitted, compute total stock from variants; otherwise use provided stock
 $total_stock = 0;
 $hasVariants = isset($_POST['variant_color']) && is_array($_POST['variant_color']) && count($_POST['variant_color'])>0;
 if ($hasVariants) {
@@ -36,8 +35,6 @@ if ($hasVariants) {
     $final_stock = intval($stock);
 }
 
-// Update product using prepared statements
-// Build UPDATE dynamically based on columns that actually exist in the DB
 function column_exists($conn, $table, $column) {
     $q = mysqli_query($conn, "SHOW COLUMNS FROM `" . mysqli_real_escape_string($conn, $table) . "` LIKE '" . mysqli_real_escape_string($conn, $column) . "'");
     return ($q && mysqli_num_rows($q) > 0);
@@ -47,25 +44,24 @@ $fields = [];
 $types = '';
 $values = [];
 
-// brand_id
 if (column_exists($conn, 'products', 'brand_id')) { $fields[] = 'brand_id = ?'; $types .= 'i'; $values[] = $brand_id; }
-// category_id
+
 if (column_exists($conn, 'products', 'category_id')) { $fields[] = 'category_id = ?'; $types .= 'i'; $values[] = $category_id; }
-// product_name
+
 if (column_exists($conn, 'products', 'product_name')) { $fields[] = 'product_name = ?'; $types .= 's'; $values[] = $product_name; }
-// size (may not exist in some DBs)
+
 if (column_exists($conn, 'products', 'size')) { $fields[] = 'size = ?'; $types .= 'i'; $values[] = $size; }
-// price
+
 if (column_exists($conn, 'products', 'price')) { $fields[] = 'price = ?'; $types .= 'd'; $values[] = $price; }
-// stock
+
 if (column_exists($conn, 'products', 'stock')) { $fields[] = 'stock = ?'; $types .= 'i'; $values[] = $final_stock; }
-// description
+
 if (column_exists($conn, 'products', 'description')) { $fields[] = 'description = ?'; $types .= 's'; $values[] = $description; }
-// image
+
 if ($imageName !== null && column_exists($conn, 'products', 'image')) { $fields[] = 'image = ?'; $types .= 's'; $values[] = $imageName; }
 
 if (count($fields) === 0) {
-    // Nothing to update
+
     die('Nothing to update: no known product columns present.');
 }
 
@@ -78,12 +74,10 @@ if (!$stmt) {
     die('Prepare failed: ' . mysqli_error($conn));
 }
 
-// bind params dynamically
 $bind_names = [];
 $bind_names[] = $stmt;
 $bind_names[] = $types;
 for ($i = 0; $i < count($values); $i++) {
-    // mysqli_stmt_bind_param requires references
     $bind_names[] = & $values[$i];
 }
 call_user_func_array('mysqli_stmt_bind_param', $bind_names);
@@ -91,14 +85,12 @@ call_user_func_array('mysqli_stmt_bind_param', $bind_names);
 if (mysqli_stmt_execute($stmt)) {
     mysqli_stmt_close($stmt);
 
-    // Handle gallery image deletions (from checkboxes in edit form)
     if (isset($_POST['images_to_delete']) && is_array($_POST['images_to_delete'])) {
         $delStmt = mysqli_prepare($conn, "DELETE FROM product_images WHERE product_id = ? AND image = ?");
         foreach ($_POST['images_to_delete'] as $del) {
             $fn = basename($del);
             $fnEsc = mysqli_real_escape_string($conn, $fn);
             $pid = intval($product_id);
-            // verify and fetch stored image
             $chk = mysqli_prepare($conn, "SELECT image FROM product_images WHERE product_id = ? AND image = ? LIMIT 1");
             mysqli_stmt_bind_param($chk, 'is', $pid, $fn);
             mysqli_stmt_execute($chk);
@@ -116,9 +108,6 @@ if (mysqli_stmt_execute($stmt)) {
         if ($delStmt) mysqli_stmt_close($delStmt);
     }
 
-    // No server-side deletion of variant color images: feature removed per request.
-
-    // Handle new gallery uploads
     if (isset($_FILES['images']) && isset($_FILES['images']['name']) && is_array($_FILES['images']['name'])) {
         $insImgStmt = mysqli_prepare($conn, "INSERT INTO product_images (product_id, image) VALUES (?, ?)");
         for ($i=0;$i<count($_FILES['images']['name']);$i++) {
@@ -133,7 +122,7 @@ if (mysqli_stmt_execute($stmt)) {
         mysqli_stmt_close($insImgStmt);
     }
 
-    // Handle variants: update existing, insert new, and delete only unreferenced old variants
+   
     if ($hasVariants) {
         $var_colors = $_POST['variant_color'];
         $var_sizes = isset($_POST['variant_size']) && is_array($_POST['variant_size']) ? $_POST['variant_size'] : array_fill(0, count($var_colors), '');
@@ -141,7 +130,6 @@ if (mysqli_stmt_execute($stmt)) {
         $existing_color_imgs = isset($_POST['variant_existing_color_image']) ? $_POST['variant_existing_color_image'] : [];
         $posted_variant_ids = isset($_POST['variant_id']) && is_array($_POST['variant_id']) ? $_POST['variant_id'] : [];
 
-        // If the form submitted a remove_variant index, exclude that row from processing
         if (isset($_POST['remove_variant'])) {
             $remIdx = intval($_POST['remove_variant']);
             if ($remIdx >= 0) {
@@ -150,7 +138,7 @@ if (mysqli_stmt_execute($stmt)) {
                 if (isset($var_stocks[$remIdx])) unset($var_stocks[$remIdx]);
                 if (isset($existing_color_imgs[$remIdx])) unset($existing_color_imgs[$remIdx]);
                 if (isset($posted_variant_ids[$remIdx])) unset($posted_variant_ids[$remIdx]);
-                // Reindex arrays so indexes align for the loop
+      
                 $var_colors = array_values($var_colors);
                 $var_sizes = array_values($var_sizes);
                 $var_stocks = array_values($var_stocks);
@@ -159,7 +147,6 @@ if (mysqli_stmt_execute($stmt)) {
             }
         }
 
-        // Prepare statements
         $insWithImg = mysqli_prepare($conn, "INSERT INTO product_variants (product_id, color_name, color_image, size_value, stock) VALUES (?, ?, ?, ?, ?)");
         $insNoImg = mysqli_prepare($conn, "INSERT INTO product_variants (product_id, color_name, color_image, size_value, stock) VALUES (?, ?, NULL, ?, ?)");
         $updWithImg = mysqli_prepare($conn, "UPDATE product_variants SET color_name=?, color_image=?, size_value=?, stock=? WHERE variant_id=? AND product_id=?");
@@ -171,7 +158,6 @@ if (mysqli_stmt_execute($stmt)) {
             $sz = trim($var_sizes[$i]);
             $stk = intval($var_stocks[$i]);
 
-            // handle color image upload for this variant
             $colorImageName = null;
             if (isset($_FILES['variant_color_image']) && isset($_FILES['variant_color_image']['name'][$i]) && !empty($_FILES['variant_color_image']['name'][$i])) {
                 $cimg = time() . '_var_' . basename($_FILES['variant_color_image']['name'][$i]);
@@ -180,7 +166,6 @@ if (mysqli_stmt_execute($stmt)) {
                     $colorImageName = $cimg;
                 }
             } else {
-                // keep existing color image if provided
                 if (isset($existing_color_imgs[$i]) && !empty($existing_color_imgs[$i])) {
                     $colorImageName = $existing_color_imgs[$i];
                 } else {
@@ -190,7 +175,6 @@ if (mysqli_stmt_execute($stmt)) {
 
             $vid = isset($posted_variant_ids[$i]) ? intval($posted_variant_ids[$i]) : 0;
             if ($vid > 0) {
-                // update existing variant
                 if ($colorImageName !== null) {
                     mysqli_stmt_bind_param($updWithImg, 'sssiii', $cname, $colorImageName, $sz, $stk, $vid, $product_id);
                     mysqli_stmt_execute($updWithImg);
@@ -200,7 +184,6 @@ if (mysqli_stmt_execute($stmt)) {
                 }
                 $processed_variant_ids[] = $vid;
             } else {
-                // insert new variant
                 if ($colorImageName !== null) {
                     mysqli_stmt_bind_param($insWithImg, 'isssi', $product_id, $cname, $colorImageName, $sz, $stk);
                     mysqli_stmt_execute($insWithImg);
@@ -213,13 +196,12 @@ if (mysqli_stmt_execute($stmt)) {
             }
         }
 
-        // Close prepared statements
         if ($insWithImg) mysqli_stmt_close($insWithImg);
         if ($insNoImg) mysqli_stmt_close($insNoImg);
         if ($updWithImg) mysqli_stmt_close($updWithImg);
         if ($updNoImg) mysqli_stmt_close($updNoImg);
 
-        // Determine which existing variants were not processed and try to delete them only if they are not referenced in orderline
+       
         $allExisting = [];
         $resAll = mysqli_query($conn, "SELECT variant_id, color_image FROM product_variants WHERE product_id = " . intval($product_id));
         while ($r = mysqli_fetch_assoc($resAll)) { $allExisting[] = $r; }
@@ -234,11 +216,9 @@ if (mysqli_stmt_execute($stmt)) {
 
         $blocked = [];
         if (count($toDelete) > 0) {
-            // build comma list safely (integers only)
             $ids = array_map('intval', $toDelete);
             $ids_list = implode(',', $ids);
 
-            // find referenced variant ids
             $refQ = mysqli_query($conn, "SELECT DISTINCT variant_id FROM orderline WHERE variant_id IN (" . $ids_list . ")");
             $referenced = [];
             if ($refQ) {
@@ -248,7 +228,6 @@ if (mysqli_stmt_execute($stmt)) {
             $deletable = array_diff($ids, $referenced);
             if (count($deletable) > 0) {
                 $del_list = implode(',', $deletable);
-                // remove color images for deletable variants
                 foreach ($deletable as $dvid) {
                     if (!empty($idToImage[$dvid])) {
                         $p = 'images/' . $idToImage[$dvid];
@@ -258,18 +237,15 @@ if (mysqli_stmt_execute($stmt)) {
                 mysqli_query($conn, "DELETE FROM product_variants WHERE variant_id IN (" . $del_list . ")");
             }
 
-            // Those that are referenced cannot be deleted
             if (count($referenced) > 0) {
                 $blocked = $referenced;
             }
         }
 
-        // If some variants were blocked from deletion, show a friendly alert listing them
         if (count($blocked) > 0) {
             echo "<div class='container mt-4'><div class='alert alert-warning'>Some variants could not be removed because customers have orders referencing them. Variant IDs: " . htmlspecialchars(implode(', ', $blocked)) . ". Please cancel or complete those orders before deleting these variants.</div></div>";
         }
 
-        // Recalculate final stock from remaining variants
         $sRes = mysqli_query($conn, "SELECT SUM(stock) as ssum FROM product_variants WHERE product_id = " . intval($product_id));
         if ($sRes && $sRow = mysqli_fetch_assoc($sRes)) {
             $final_stock = intval($sRow['ssum']);
@@ -277,12 +253,10 @@ if (mysqli_stmt_execute($stmt)) {
         }
     }
 
-    // If this request came from the Edit page's Remove button, stay on the edit page
     if (isset($_POST['remove_variant']) && isset($_POST['product_id'])) {
         $redirId = intval($_POST['product_id']);
         header('Location: ../item/edit.php?id=' . $redirId);
     } else {
-        // Redirect back to admin products list if the user is an Admin, otherwise to the public products page
         if (isset($_SESSION['role']) && strtolower(trim($_SESSION['role'])) === 'admin') {
             header("Location: ../admin/products.php");
         } else {

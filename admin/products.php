@@ -2,49 +2,24 @@
 include '../includes/config.php';
 include '../includes/adminHeader.php';
 
-// Small styles to ensure file-input previews display consistently (preview shown above the chooser)
 echo "<style>
 .variant-preview{margin-bottom:6px;display:block}
 .variant-preview img{width:80px;height:80px;object-fit:cover;border:1px solid #ddd;border-radius:4px;display:block}
 .gallery-preview img{width:80px;height:80px;object-fit:cover;border:1px solid #ddd;border-radius:4px;display:block}
 </style>";
 
-// ✅ Restrict access to Admins only
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'Admin') {
     echo "<div class='alert alert-danger text-center'>Access denied. Admins only.</div>";
     include '../includes/footer.php';
     exit();
 }
 
-// Ensure variant tables exist (simple, inline migration)
-mysqli_query($conn, "CREATE TABLE IF NOT EXISTS product_images (
-  image_id INT NOT NULL AUTO_INCREMENT,
-  product_id INT NOT NULL,
-  image VARCHAR(255) NOT NULL,
-  PRIMARY KEY(image_id),
-  INDEX (product_id),
-  CONSTRAINT fk_prodimg_product FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB");
-
-mysqli_query($conn, "CREATE TABLE IF NOT EXISTS product_variants (
-  variant_id INT NOT NULL AUTO_INCREMENT,
-  product_id INT NOT NULL,
-  color_name VARCHAR(100) NOT NULL,
-  color_image VARCHAR(255) NULL,
-  size_value VARCHAR(20) NOT NULL,
-  stock INT NOT NULL,
-  PRIMARY KEY(variant_id),
-  INDEX (product_id),
-  CONSTRAINT fk_variant_product FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE ON UPDATE CASCADE
-) ENGINE=InnoDB");
-
-// ✅ Handle Add Product
-// Temp upload directory and session arrays (ensure available early)
 $tmp_dir = __DIR__ . '/../item/tmp_uploads/';
 if (!is_dir($tmp_dir)) @mkdir($tmp_dir, 0777, true);
 if (!isset($_SESSION['tmp_product_images'])) $_SESSION['tmp_product_images'] = [];
 if (!isset($_SESSION['tmp_variant_color_images'])) $_SESSION['tmp_variant_color_images'] = [];
-// ✅ Handle Add Product
+
+// Create (Admin) - handle adding a new product with variants and images
 if (isset($_POST['add_product'])) {
     $brand_id = intval($_POST['brand_id']);
     $category_id = intval($_POST['category_id']);
@@ -53,7 +28,6 @@ if (isset($_POST['add_product'])) {
     $description = mysqli_real_escape_string($conn, $_POST['description']);
     $date_added = date('Y-m-d');
 
-    // Variants arrays
     $var_color = isset($_POST['variant_color']) ? $_POST['variant_color'] : [];
     $var_size  = isset($_POST['variant_size']) ? $_POST['variant_size'] : [];
     $var_stock = isset($_POST['variant_stock']) ? $_POST['variant_stock'] : [];
@@ -61,12 +35,12 @@ if (isset($_POST['add_product'])) {
     if (empty($brand_id) || empty($category_id) || empty($product_name) || empty($price)) {
         echo "<script>alert('Please fill in all required fields.');</script>";
     } elseif (empty($_FILES['images']['name'][0]) && empty($_SESSION['tmp_product_images'])) {
-        // allow previously-temporarily-uploaded images
+ 
         echo "<script>alert('Please upload at least one product image.');</script>";
     } elseif (count($var_color) == 0) {
         echo "<script>alert('Add at least one variant (color, size, stock).');</script>";
     } else {
-        // Prevent duplicate product names under the same brand
+     
         $check = mysqli_query($conn, "SELECT * FROM products WHERE product_name = '$product_name' AND brand_id = '$brand_id'");
         if (mysqli_num_rows($check) > 0) {
             echo "<script>alert('Product with this name already exists under the selected brand.');</script>";
@@ -76,10 +50,8 @@ if (isset($_POST['add_product'])) {
             if (!is_dir($target_dir_fs)) @mkdir($target_dir_fs, 0777, true);
             $allowed_types = ['jpg','jpeg','png','webp'];
 
-            // Collect uploaded images from session-temp (first) then from posted files
             $uploaded_images = [];
 
-            // Move session-temp images to permanent folder
             if (!empty($_SESSION['tmp_product_images'])) {
                 foreach ($_SESSION['tmp_product_images'] as $tmpName) {
                     $src = $tmp_dir . $tmpName;
@@ -91,7 +63,6 @@ if (isset($_POST['add_product'])) {
                     if (@rename($src, $destFs)) {
                         $uploaded_images[] = $newName;
                     } else {
-                        // fallback copy
                         if (@copy($src, $destFs)) {
                             $uploaded_images[] = $newName;
                             @unlink($src);
@@ -100,7 +71,6 @@ if (isset($_POST['add_product'])) {
                 }
             }
 
-            // Upload main product images (multiple) from fresh POST
             if (isset($_FILES['images']) && is_array($_FILES['images']['name'])) {
                 foreach ($_FILES['images']['name'] as $idx => $name) {
                     if (empty($name)) continue;
@@ -117,14 +87,11 @@ if (isset($_POST['add_product'])) {
             if (count($uploaded_images) == 0) {
                 echo "<script>alert('Failed to upload images.');</script>";
             } else {
-                // Compute total stock from variants
                 $total_stock = 0;
                 foreach ($var_stock as $s) { $total_stock += intval($s); }
 
-                // Use first uploaded image as product main image to satisfy NOT NULL
                 $main_image = $uploaded_images[0];
 
-                // Insert product. Some schemas may not have a `size` column — detect and adapt.
                 $has_size_col = false;
                 $colCheck = mysqli_query($conn, "SHOW COLUMNS FROM `products` LIKE 'size'");
                 if ($colCheck && mysqli_num_rows($colCheck) > 0) $has_size_col = true;
@@ -138,12 +105,12 @@ if (isset($_POST['add_product'])) {
                 if (mysqli_query($conn, $insert_query)) {
                     $product_id = mysqli_insert_id($conn);
 
-                    // Save extra images
+                    
                     foreach ($uploaded_images as $img) {
                         mysqli_query($conn, "INSERT INTO product_images (product_id, image) VALUES ($product_id, '" . mysqli_real_escape_string($conn, $img) . "')");
                     }
 
-                    // Handle variant uploads and insert. Prefer new POSTed files, else use session-temp variant images.
+                   
                     $colorImages = isset($_FILES['variant_color_image']) ? $_FILES['variant_color_image'] : null;
                     for ($i = 0; $i < count($var_color); $i++) {
                         $cname = trim($var_color[$i]);
@@ -153,7 +120,6 @@ if (isset($_POST['add_product'])) {
 
                         $colImgNameSaved = NULL;
 
-                        // First, if a new file was uploaded in this submit
                         if ($colorImages && !empty($colorImages['name'][$i])) {
                             $cExt = strtolower(pathinfo($colorImages['name'][$i], PATHINFO_EXTENSION));
                             if (in_array($cExt, $allowed_types)) {
@@ -165,7 +131,6 @@ if (isset($_POST['add_product'])) {
                             }
                         }
 
-                        // Else, if a temp color image exists for this row from prior intermediate posts
                         if ($colImgNameSaved === NULL && isset($_SESSION['tmp_variant_color_images'][$i])) {
                             $tmpName = $_SESSION['tmp_variant_color_images'][$i];
                             $src = $tmp_dir . $tmpName;
@@ -192,7 +157,6 @@ if (isset($_POST['add_product'])) {
                         mysqli_query($conn, "INSERT INTO product_variants (product_id, color_name, color_image, size_value, stock) VALUES ($product_id, '$cnameEsc', $imgVal, '$szEsc', $stk)");
                     }
 
-                    // Clear temp session buffers
                     $_SESSION['tmp_product_images'] = [];
                     $_SESSION['tmp_variant_color_images'] = [];
 
@@ -205,11 +169,10 @@ if (isset($_POST['add_product'])) {
     }
 }
 
-// ✅ Handle Delete Product
+// Delete (Admin) - handle product deletion, remove images and variants safely
 if (isset($_GET['delete'])) {
     $delete_id = intval($_GET['delete']);
 
-    // Delete associated images (main + gallery + color images)
     $result = mysqli_query($conn, "SELECT image FROM products WHERE product_id = '$delete_id'");
     if ($result && $row = mysqli_fetch_assoc($result)) {
         $image_path = "../item/images/" . $row['image'];
@@ -236,7 +199,6 @@ if (isset($_GET['delete'])) {
 
         $delVars = mysqli_query($conn, "DELETE FROM product_variants WHERE product_id = '$delete_id'");
         if (!$delVars) {
-            // MySQL error 1451: Cannot delete or update a parent row: a foreign key constraint fails
             if (mysqli_errno($conn) == 1451) {
                 echo "<div class='container mt-4'><div class='alert alert-warning text-center'>Cannot delete product because customers still have orders referencing its variants. Please cancel or resolve those orders before deleting this product.<br><a href='products.php' class='btn btn-sm btn-primary mt-2'>Back to products</a></div></div>";
                 include '../includes/footer.php';
@@ -253,7 +215,7 @@ if (isset($_GET['delete'])) {
     if ($delete) {
         echo "<script>alert('Product deleted successfully!'); window.location.href='products.php';</script>";
     } else {
-        // If delete fails because of FK constraints (leftover references), show friendly message
+        
         if (mysqli_errno($conn) == 1451) {
             echo "<div class='container mt-4'><div class='alert alert-warning text-center'>Cannot delete product because customers still have orders referencing its variants. Please cancel or resolve those orders before deleting this product.<br><a href='products.php' class='btn btn-sm btn-primary mt-2'>Back to products</a></div></div>";
         } else {
@@ -263,63 +225,101 @@ if (isset($_GET['delete'])) {
     exit();
 }
 
-// ✅ Fetch all products
 $products = mysqli_query($conn, "
     SELECT p.*, b.brand_name, c.category_name
     FROM products p
     JOIN brands b ON p.brand_id = b.brand_id
     JOIN category c ON p.category_id = c.category_id
-    ORDER BY p.date_added DESC
+    ORDER BY p.product_id ASC
 ");
+// Read (Admin) - product list for management
 
-// Fetch brands and categories for dropdowns
 $brands = mysqli_query($conn, "SELECT * FROM brands ORDER BY brand_name ASC");
 $categories = mysqli_query($conn, "SELECT * FROM category ORDER BY category_name ASC");
 
-// Prepare variant rows for PHP-only add/remove behavior (no JS)
+
 $posted_variant_colors = isset($_POST['variant_color']) && is_array($_POST['variant_color']) ? $_POST['variant_color'] : [''];
 $posted_variant_sizes = isset($_POST['variant_size']) && is_array($_POST['variant_size']) ? $_POST['variant_size'] : [''];
 $posted_variant_stocks = isset($_POST['variant_stock']) && is_array($_POST['variant_stock']) ? $_POST['variant_stock'] : ['0'];
 
-// Handle remove-variant action (a submit button per row with name "remove_variant")
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['add_product'])) {
+    $tmp_dir = __DIR__ . '/../item/tmp_uploads/';
+    if (!is_dir($tmp_dir)) @mkdir($tmp_dir, 0777, true);
+    $allowed_types = ['jpg','jpeg','png','webp'];
+
+    if (isset($_FILES['images']) && is_array($_FILES['images']['name'])) {
+        foreach ($_FILES['images']['name'] as $idx => $name) {
+            if (empty($name)) continue;
+            $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+            if (!in_array($ext, $allowed_types)) continue;
+            $tmpName = 'tmp_' . time() . '_' . mt_rand(1000,9999) . '.' . $ext;
+            $dest = $tmp_dir . $tmpName;
+            if (is_uploaded_file($_FILES['images']['tmp_name'][$idx]) && move_uploaded_file($_FILES['images']['tmp_name'][$idx], $dest)) {
+                $_SESSION['tmp_product_images'][] = $tmpName;
+            }
+        }
+    }
+
+    if (isset($_FILES['variant_color_image']) && is_array($_FILES['variant_color_image']['name'])) {
+        foreach ($_FILES['variant_color_image']['name'] as $i => $name) {
+            if (empty($name)) continue;
+            $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+            if (!in_array($ext, $allowed_types)) continue;
+            $tmpName = 'tmp_color_' . time() . '_' . mt_rand(1000,9999) . '.' . $ext;
+            $dest = $tmp_dir . $tmpName;
+            if (is_uploaded_file($_FILES['variant_color_image']['tmp_name'][$i]) && move_uploaded_file($_FILES['variant_color_image']['tmp_name'][$i], $dest)) {
+                $_SESSION['tmp_variant_color_images'][$i] = $tmpName;
+            }
+        }
+    }
+
+    $_REQUEST['_uploads_processed'] = true;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['remove_variant'])) {
     $remIdx = intval($_POST['remove_variant']);
     if (isset($posted_variant_colors[$remIdx])) unset($posted_variant_colors[$remIdx]);
     if (isset($posted_variant_sizes[$remIdx])) unset($posted_variant_sizes[$remIdx]);
     if (isset($posted_variant_stocks[$remIdx])) unset($posted_variant_stocks[$remIdx]);
-    // reindex arrays
+ 
     $posted_variant_colors = array_values($posted_variant_colors);
     $posted_variant_sizes = array_values($posted_variant_sizes);
     $posted_variant_stocks = array_values($posted_variant_stocks);
+    
+    if (isset($_SESSION['tmp_variant_color_images'][$remIdx])) {
+        $tmpFile = __DIR__ . '/../item/tmp_uploads/' . $_SESSION['tmp_variant_color_images'][$remIdx];
+        if (file_exists($tmpFile)) @unlink($tmpFile);
+        unset($_SESSION['tmp_variant_color_images'][$remIdx]);
+    }
+    if (!empty($_SESSION['tmp_variant_color_images'])) {
+        $_SESSION['tmp_variant_color_images'] = array_values($_SESSION['tmp_variant_color_images']);
+    } else {
+        $_SESSION['tmp_variant_color_images'] = [];
+    }
 }
 
-// Handle add-variant-row action (adds an empty variant row and re-renders form)
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_variant_row'])) {
     $posted_variant_colors[] = '';
     $posted_variant_sizes[] = '';
     $posted_variant_stocks[] = 0;
 }
 
-// --- Temporary upload support: keep uploaded images across add/remove variant posts ---
-// Temp uploads are stored under item/tmp_uploads and referenced in session so file inputs
-// do not need to be reselected while manipulating variant rows.
 if (!isset($_SESSION['tmp_product_images'])) $_SESSION['tmp_product_images'] = [];
 if (!isset($_SESSION['tmp_variant_color_images'])) $_SESSION['tmp_variant_color_images'] = [];
 
 $tmp_dir = __DIR__ . '/../item/tmp_uploads/';
 if (!is_dir($tmp_dir)) @mkdir($tmp_dir, 0777, true);
 
-// Reindex tmp variant images to align with current posted variant rows (after add/remove)
+
 $reindexed = [];
 foreach ($posted_variant_colors as $i => $v) {
     if (isset($_SESSION['tmp_variant_color_images'][$i])) $reindexed[$i] = $_SESSION['tmp_variant_color_images'][$i];
 }
 $_SESSION['tmp_variant_color_images'] = $reindexed;
 
-// If this is an intermediate POST (not the final add_product submit), persist any uploaded
-// files into the temp folder and record them in session for subsequent postbacks.
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['add_product'])) {
-    // Product gallery images
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['add_product']) && !isset($_REQUEST['_uploads_processed'])) {
     if (isset($_FILES['images']) && is_array($_FILES['images']['name'])) {
         foreach ($_FILES['images']['name'] as $idx => $name) {
             if (empty($name)) continue;
@@ -334,7 +334,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['add_product'])) {
         }
     }
 
-    // Variant color images (indexed by variant row)
     if (isset($_FILES['variant_color_image']) && is_array($_FILES['variant_color_image']['name'])) {
         foreach ($_FILES['variant_color_image']['name'] as $i => $name) {
             if (empty($name)) continue;
@@ -344,23 +343,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['add_product'])) {
             $tmpName = 'tmp_color_' . time() . '_' . mt_rand(1000,9999) . '.' . $ext;
             $dest = $tmp_dir . $tmpName;
             if (move_uploaded_file($_FILES['variant_color_image']['tmp_name'][$i], $dest)) {
-                // record by index so it stays with the row
                 $_SESSION['tmp_variant_color_images'][$i] = $tmpName;
             }
         }
     }
 }
 
-// Handle explicit Cancel action: remove temp files and clear session buffers
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel'])) {
-    // remove product temp images
+ 
     if (!empty($_SESSION['tmp_product_images'])) {
         foreach ($_SESSION['tmp_product_images'] as $f) {
             $p = $tmp_dir . $f;
             if (file_exists($p)) @unlink($p);
         }
     }
-    // remove variant temp images
+
     if (!empty($_SESSION['tmp_variant_color_images'])) {
         foreach ($_SESSION['tmp_variant_color_images'] as $f) {
             $p = $tmp_dir . $f;
@@ -369,12 +367,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel'])) {
     }
     $_SESSION['tmp_product_images'] = [];
     $_SESSION['tmp_variant_color_images'] = [];
-    // redirect to clear POST
+
     header('Location: products.php');
     exit();
 }
 
-// Auto-clean temp files when arriving on the page via GET (assume previous editing session ended)
+
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     if (!empty($_SESSION['tmp_product_images'])) {
         foreach ($_SESSION['tmp_product_images'] as $f) {
@@ -392,7 +390,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     }
 }
 
-// Preserve other product-level fields across POSTs (so add/remove variant doesn't wipe inputs)
 $posted_brand_id = isset($_POST['brand_id']) ? intval($_POST['brand_id']) : null;
 $posted_category_id = isset($_POST['category_id']) ? intval($_POST['category_id']) : null;
 $posted_product_name = isset($_POST['product_name']) ? $_POST['product_name'] : '';
@@ -403,7 +400,6 @@ $posted_description = isset($_POST['description']) ? $_POST['description'] : '';
 <div class="container mt-4">
     <h2 class="text-center mb-4">🛍 Manage Products</h2>
 
-    <!-- ✅ Add Product Form (with variants) -->
     <div class="card mb-4 shadow-sm">
         <div class="card-header bg-dark text-white fw-bold">Add New Product</div>
         <div class="card-body">
@@ -451,7 +447,7 @@ $posted_description = isset($_POST['description']) ? $_POST['description'] : '';
                     <input type="file" id="addGalleryInput" name="images[]" class="form-control" accept="image/*" multiple>
                     <small class="text-muted">You can select multiple images. Previously uploaded images will be kept while editing variants.</small>
                     <div id="addGalleryPreview" class="d-flex gap-2 flex-wrap mt-2">
-                        <?php // Render previews for temp-uploaded images stored in session ?>
+                        <?php ?>
                         <?php if (!empty($_SESSION['tmp_product_images'])): ?>
                             <?php foreach ($_SESSION['tmp_product_images'] as $ti): ?>
                                 <?php $tpath = '../item/tmp_uploads/' . htmlspecialchars($ti); ?>
@@ -468,7 +464,7 @@ $posted_description = isset($_POST['description']) ? $_POST['description'] : '';
                 <hr>
                 <h5>Variants (Color + Size + Stock)</h5>
                 <div>
-                    <!-- PHP-driven variant rows (no JavaScript). Each row has a Remove button that submits the form. -->
+                   
                     <?php $vcount = max(1, count($posted_variant_colors)); ?>
                     <?php for ($vi = 0; $vi < $vcount; $vi++): ?>
                         <?php $vcolor = htmlspecialchars($posted_variant_colors[$vi] ?? ''); ?>
@@ -481,7 +477,7 @@ $posted_description = isset($_POST['description']) ? $_POST['description'] : '';
                             </div>
                             <div class="col-md-3">
                                 <label>Color Image</label>
-                                <?php // preview for temp color image if present (rendered above the file input) ?>
+                                <?php ?>
                                 <?php if (!empty($_SESSION['tmp_variant_color_images'][$vi]) && file_exists(__DIR__ . '/../item/tmp_uploads/' . $_SESSION['tmp_variant_color_images'][$vi])): ?>
                                     <div class="variant-preview">
                                         <img src="<?= '../item/tmp_uploads/' . htmlspecialchars($_SESSION['tmp_variant_color_images'][$vi]) ?>" alt="color preview">
@@ -515,7 +511,6 @@ $posted_description = isset($_POST['description']) ? $_POST['description'] : '';
         </div>
     </div>
 
-    <!-- ✅ Product List -->
     <div class="card shadow-sm">
         <div class="card-header bg-dark text-white fw-bold">Product List</div>
         <div class="card-body table-responsive">

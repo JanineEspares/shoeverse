@@ -2,19 +2,16 @@
 include '../includes/config.php';
 include '../includes/adminHeader.php';
 
-// Restrict access to Admins only
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'Admin') {
     echo "<div class='alert alert-danger text-center'>Access denied. Admins only.</div>";
     include '../includes/footer.php';
     exit();
 }
 
-// Handle order status update
 if (isset($_POST['update_status'])) {
     $order_id = intval($_POST['order_id']);
     $status = mysqli_real_escape_string($conn, $_POST['status']);
 
-    // fetch current status
     $curS = mysqli_prepare($conn, "SELECT status FROM orders WHERE order_id = ? LIMIT 1");
     mysqli_stmt_bind_param($curS, 'i', $order_id);
     mysqli_stmt_execute($curS);
@@ -24,8 +21,24 @@ if (isset($_POST['update_status'])) {
 
     $oldStatus = $rowS['status'] ?? null;
 
-    // perform update; if the orders table has a date_shipped column and status becomes Shipped,
-    // store the current datetime in that column.
+    $old = $oldStatus;
+    $new = $status;
+
+    if ($old === 'Cancelled') {
+        echo "<script>alert('This order is cancelled and cannot be changed.'); window.location.href='orders.php';</script>";
+        exit();
+    }
+
+    if ($old === 'Shipped' && $new === 'Pending') {
+        echo "<script>alert('Cannot change status from Shipped back to Pending.'); window.location.href='orders.php';</script>";
+        exit();
+    }
+
+    if ($old === 'Delivered' && $new !== 'Delivered') {
+        echo "<script>alert('Delivered orders cannot be changed.'); window.location.href='orders.php';</script>";
+        exit();
+    }
+
     $hasDateShipped = false;
     $colCheck = mysqli_query($conn, "SHOW COLUMNS FROM orders LIKE 'date_shipped'");
     if ($colCheck && mysqli_num_rows($colCheck) > 0) { $hasDateShipped = true; }
@@ -42,9 +55,8 @@ if (isset($_POST['update_status'])) {
     mysqli_stmt_close($stmtU);
 
     if ($exec) {
-        // if newly cancelled and previously not cancelled, restore stock for this order
         if ($status === 'Cancelled' && $oldStatus !== 'Cancelled') {
-            // restore stock for each orderline
+        
             $ol = mysqli_prepare($conn, "SELECT product_id, variant_id, quantity FROM orderline WHERE order_id = ?");
             mysqli_stmt_bind_param($ol, 'i', $order_id);
             mysqli_stmt_execute($ol);
@@ -69,8 +81,6 @@ if (isset($_POST['update_status'])) {
             }
         }
 
-        // After updating status, send an email notification to the customer with order details
-        // Fetch order header info (detect optional columns to avoid referencing missing ones)
         function _col_exists($conn, $table, $col) {
             $q = mysqli_query($conn, "SHOW COLUMNS FROM `" . mysqli_real_escape_string($conn, $table) . "` LIKE '" . mysqli_real_escape_string($conn, $col) . "'");
             return ($q && mysqli_num_rows($q) > 0);
@@ -96,7 +106,6 @@ if (isset($_POST['update_status'])) {
             $payment_method_for_email = $orderHeader['payment_method'] ?? '';
             $payment_info_for_email = $orderHeader['payment_info'] ?? null;
 
-            // Build items HTML and compute subtotal. Prefer the view if present; otherwise fall back to a direct join query.
             $items_html = '';
             $subtotal_calc = 0.0;
 
@@ -115,7 +124,7 @@ if (isset($_POST['update_status'])) {
                     $vres = false;
                 }
             } else {
-                // fallback: join orderline -> products -> product_variants
+                
                 $stmtFallback = mysqli_prepare($conn, "SELECT p.product_name, pv.color_name AS variant_color, pv.size_value AS variant_size, ol.quantity, p.price AS unit_price, (ol.quantity * p.price) AS line_total FROM orderline ol JOIN products p ON ol.product_id = p.product_id LEFT JOIN product_variants pv ON ol.variant_id = pv.variant_id WHERE ol.order_id = ?");
                 if ($stmtFallback) {
                     mysqli_stmt_bind_param($stmtFallback, 'i', $order_id);
@@ -146,10 +155,10 @@ if (isset($_POST['update_status'])) {
 
             $grand_total_calc = $subtotal_calc + $shipping_fee_for_email;
 
-            // send email (use centralized mailer)
+            
             require_once __DIR__ . '/../includes/mailer.php';
             try {
-                // prepare a short status-specific intro message to prepend to the email
+                
                 $status_intro = null;
                 if (isset($status)) {
                     switch ($status) {
@@ -182,7 +191,7 @@ if (isset($_POST['update_status'])) {
     }
 }
 
-// Fetch all orders with user info
+
 $query = "
     SELECT orders.*, users.fname, users.lname, users.email 
     FROM orders 
@@ -242,7 +251,7 @@ $orders = mysqli_query($conn, $query);
                                 </td>
                             </tr>
 
-                            <!-- Update Status Modal -->
+                            
                             <div class="modal fade" id="updateOrder<?= $order['order_id'] ?>" tabindex="-1" aria-hidden="true">
                                 <div class="modal-dialog modal-dialog-centered">
                                     <div class="modal-content">

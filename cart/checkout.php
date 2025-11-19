@@ -78,8 +78,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             exit();
         }
         $payment_info = 'Paid: ' . number_format($payment_amount, 2);
-        // mark as paid
-        $status = 'Paid';
+        // keep status as Pending so admin and user flows treat this as awaiting shipment
+        // (orders with online payment should appear in "To Ship")
     }
 
     // Insert into orders using prepared statement. Detect payment-related columns separately

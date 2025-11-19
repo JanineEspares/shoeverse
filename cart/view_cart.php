@@ -10,7 +10,6 @@ if (!isset($_SESSION['user_id'])) {
 
 $user_id = $_SESSION['user_id'];
 
-// Get cart items for this user
 $variantColumnExists = false;
 $colCheck = mysqli_query($conn, "SHOW COLUMNS FROM carts LIKE 'variant_id'");
 if ($colCheck && mysqli_num_rows($colCheck) > 0) {
@@ -26,7 +25,7 @@ if ($variantColumnExists) {
         LEFT JOIN product_variants v ON c.variant_id = v.variant_id
         WHERE c.user_id = $user_id";
 } else {
-  // Return NULL placeholders for variant-related fields so the page doesn't break
+  
   $query = "SELECT c.cart_id, c.quantity, NULL AS variant_id,
            p.product_id, p.product_name, p.price, p.image,
            NULL AS color_name, NULL AS size_value, NULL AS variant_stock

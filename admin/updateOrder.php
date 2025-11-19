@@ -2,22 +2,19 @@
 include '../includes/config.php';
 include '../includes/adminHeader.php';
 
-// Restrict access to Admins only
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'Admin') {
     echo "<div class='alert alert-danger text-center'>Access denied. Admins only.</div>";
     include '../includes/footer.php';
     exit();
 }
 
-// Make sure there's an ID passed
 if (!isset($_GET['id'])) {
     echo "<script>alert('Invalid request.'); window.location.href='products.php';</script>";
     exit();
 }
 
-$product_id = intval($_GET['id']); // ensure it's an integer
+$product_id = intval($_GET['id']); 
 
-// Fetch product data
 $product_query = mysqli_query($conn, "SELECT * FROM products WHERE product_id = '$product_id'");
 if (mysqli_num_rows($product_query) == 0) {
     echo "<script>alert('Product not found.'); window.location.href='products.php';</script>";
@@ -25,11 +22,11 @@ if (mysqli_num_rows($product_query) == 0) {
 }
 $product = mysqli_fetch_assoc($product_query);
 
-// Fetch dropdown data
+
 $brands = mysqli_query($conn, "SELECT * FROM brands");
 $categories = mysqli_query($conn, "SELECT * FROM category");
 
-// Handle form submission
+
 if (isset($_POST['update_product'])) {
     $brand_id = intval($_POST['brand_id']);
     $category_id = intval($_POST['category_id']);
@@ -39,7 +36,6 @@ if (isset($_POST['update_product'])) {
     $stock = intval($_POST['stock']);
     $description = mysqli_real_escape_string($conn, $_POST['description']);
 
-    // Handle image update
     $image_sql = "";
     if (!empty($_FILES['image']['name'])) {
         $image_name = $_FILES['image']['name'];
